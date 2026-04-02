@@ -244,17 +244,6 @@ typedef MCIERROR (WINAPI *PFN_mciSendStringA)(LPCSTR, LPSTR, UINT, HWND);
 //=====================================================================
 
 //---------------------------------------------------------------------
-// 内部精灵数据结构
-//---------------------------------------------------------------------
-struct GameLibSprite {
-    int width;
-    int height;
-    uint32_t *pixels;
-    bool used;
-};
-
-
-//---------------------------------------------------------------------
 // GameLib 主类
 //---------------------------------------------------------------------
 class GameLib
@@ -274,6 +263,7 @@ public:
     int GetWidth() const;
     int GetHeight() const;
     void SetTitle(const char *title);
+    void ShowFps(bool show);
 
     // -------- 帧缓冲 --------
     void Clear(uint32_t color = COLOR_BLACK);
@@ -344,6 +334,7 @@ private:
     static int _InitWindowClass();
     void _DispatchMessages();
     void _InitDIBInfo(void *ptr, int width, int height);
+    void _UpdateTitleFps();
 
     // 内部像素绘制（无边界检查，用于已裁剪后的快速绘制）
     void _SetPixelFast(int x, int y, uint32_t color);
@@ -357,6 +348,7 @@ private:
     HWND _hwnd;
     bool _closing;
     bool _active;
+    bool _showFps;
     std::string _title;
     int _width;
     int _height;
@@ -383,7 +375,8 @@ private:
     DWORD _fpsTime;
 
     // 精灵存储
-    std::vector<GameLibSprite> _sprites;
+    struct GameSprite { int width, height; uint32_t *pixels; bool used; };
+    std::vector<GameSprite> _sprites;
 
     // 音乐状态（MCI）
     bool _musicPlaying;
@@ -550,6 +543,7 @@ GameLib::GameLib()
     _hwnd = NULL;
     _closing = false;
     _active = false;
+    _showFps = false;
     _width = 0;
     _height = 0;
     _framebuffer = NULL;
@@ -913,6 +907,7 @@ void GameLib::Update()
         _fps = _fpsAccum * 1000.0f / fpsDelta;
         _fpsAccum = 0.0f;
         _fpsTime = now;
+        _UpdateTitleFps();
     }
 }
 
@@ -960,6 +955,37 @@ void GameLib::SetTitle(const char *title)
             SetWindowTextW(_hwnd, wt);
             free(wt);
         }
+    }
+}
+
+
+//---------------------------------------------------------------------
+// ShowFps: 是否在标题栏显示 FPS
+//---------------------------------------------------------------------
+void GameLib::ShowFps(bool show)
+{
+    _showFps = show;
+    if (!show && _hwnd) {
+        // 关闭时恢复原始标题
+        SetTitle(_title.c_str());
+    }
+}
+
+
+//---------------------------------------------------------------------
+// _UpdateTitleFps: 更新标题栏 FPS 显示（内部方法）
+//---------------------------------------------------------------------
+void GameLib::_UpdateTitleFps()
+{
+    if (!_showFps || !_hwnd) return;
+    char buf[256];
+    snprintf(buf, sizeof(buf), "%s (FPS: %.1f)", _title.c_str(), _fps);
+    int len = (int)strlen(buf);
+    wchar_t *wt = (wchar_t*)malloc((len * 2 + 10) * sizeof(wchar_t));
+    if (wt) {
+        MultiByteToWideChar(CP_UTF8, 0, buf, -1, wt, len * 2 + 2);
+        SetWindowTextW(_hwnd, wt);
+        free(wt);
     }
 }
 
@@ -1248,7 +1274,7 @@ int GameLib::_AllocSpriteSlot()
     for (size_t i = 0; i < _sprites.size(); i++) {
         if (!_sprites[i].used) return (int)i;
     }
-    GameLibSprite spr;
+    GameSprite spr;
     spr.width = 0;
     spr.height = 0;
     spr.pixels = NULL;
@@ -1335,7 +1361,7 @@ void GameLib::DrawSprite(int id, int x, int y)
 {
     if (id < 0 || id >= (int)_sprites.size()) return;
     if (!_sprites[id].used) return;
-    GameLibSprite &spr = _sprites[id];
+    GameSprite &spr = _sprites[id];
     for (int sy = 0; sy < spr.height; sy++) {
         int dy = y + sy;
         if (dy < 0 || dy >= _height) continue;
@@ -1354,7 +1380,7 @@ void GameLib::DrawSpriteEx(int id, int x, int y, int flags)
 {
     if (id < 0 || id >= (int)_sprites.size()) return;
     if (!_sprites[id].used) return;
-    GameLibSprite &spr = _sprites[id];
+    GameSprite &spr = _sprites[id];
     bool flipH = (flags & SPRITE_FLIP_H) != 0;
     bool flipV = (flags & SPRITE_FLIP_V) != 0;
     bool colorKey = (flags & SPRITE_COLORKEY) != 0;
@@ -1379,7 +1405,7 @@ void GameLib::DrawSpriteRegion(int id, int x, int y, int sx, int sy, int sw, int
 {
     if (id < 0 || id >= (int)_sprites.size()) return;
     if (!_sprites[id].used) return;
-    GameLibSprite &spr = _sprites[id];
+    GameSprite &spr = _sprites[id];
     for (int j = 0; j < sh; j++) {
         int srcY = sy + j;
         int dy = y + j;

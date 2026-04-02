@@ -20,3 +20,9 @@
 - docs/GameLib.md   # tech spec
 ```
 
+## Requirements
+
+- 单个头文件实现所有内容，没有任何依赖，通过 include 就能使用。
+- 使用 Dev-Cpp 5 里自带的 gcc 4.9.2 也能编译。
+- 动态加载方式避免编译引入额外的 -lwinmm -lgdi32 等参数。
+- 包括：窗口管理，二级缓存，输入输出，图形绘制，精灵，声音，文字等功能。
