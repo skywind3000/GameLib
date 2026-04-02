@@ -271,6 +271,53 @@ int main()
 }
 ```
 
+更多示例见 `examples/` 目录。
+
+---
+
+## 示例程序
+
+`examples/` 目录包含 13 个由浅入深的示例，逐步展示 GameLib 的各项功能。前 7 个纯代码绘图，复制即可编译运行；后 6 个涉及精灵、音效等外部资源（存放在 `assets/` 目录）。
+
+编译任意示例：
+
+```bash
+g++ -o demo.exe examples/01_hello.cpp -mwindows
+```
+
+### 入门基础
+
+| 示例 | 说明 | 学到什么 |
+|------|------|----------|
+| `01_hello.cpp` | Hello World | 游戏循环、窗口创建、文字绘制 |
+| `02_moving_box.cpp` | 键盘控制方块移动 | 键盘输入、实时更新 |
+| `03_shapes.cpp` | 所有图形绘制展示 | 线、矩形、圆、三角形的描边与填充 |
+| `04_bouncing_ball.cpp` | 弹跳小球 | 浮点运动、碰壁反弹、DrawPrintf |
+
+### 交互进阶
+
+| 示例 | 说明 | 学到什么 |
+|------|------|----------|
+| `05_paint.cpp` | 简易画板 | 鼠标输入、SetPixel、按键切换颜色 |
+| `06_catch_fruit.cpp` | 接水果小游戏 | Random、碰撞检测、计分 |
+| `07_shooting_stars.cpp` | 简易射击 | 数组管理多对象、子弹发射、碰撞销毁 |
+
+### 精灵与声音
+
+| 示例 | 说明 | 学到什么 |
+|------|------|----------|
+| `08_sprite_demo.cpp` | 精灵加载与绘制 | LoadSpriteBMP、翻转、Region 裁剪 |
+| `09_sprite_animation.cpp` | 精灵帧动画 | DrawSpriteRegion 实现 sprite sheet 动画 |
+| `10_sound_demo.cpp` | 声音播放演示 | PlayWAV 音效、PlayMusic 背景音乐 |
+
+### 完整小游戏
+
+| 示例 | 说明 | 学到什么 |
+|------|------|----------|
+| `11_snake.cpp` | 贪吃蛇 | DrawGrid/FillCell、游戏状态机 |
+| `12_breakout.cpp` | 打砖块 | 碰撞检测深度运用、多对象管理 |
+| `13_space_shooter.cpp` | 太空射击 | 综合：精灵 + 音效 + 碰撞 + 滚动背景 + 计分 |
+
 ---
 
 ## API 速查
