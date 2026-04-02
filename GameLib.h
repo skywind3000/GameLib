@@ -340,6 +340,13 @@ public:
     void DrawGrid(int x, int y, int rows, int cols, int cellSize, uint32_t color);
     void FillCell(int gridX, int gridY, int row, int col, int cellSize, uint32_t color);
 
+    // -------- Tilemap 系统 --------
+    int CreateTilemap(int cols, int rows, int tileSize, int tilesetId);
+    void FreeTilemap(int mapId);
+    void SetTile(int mapId, int col, int row, int tileId);
+    int GetTile(int mapId, int col, int row) const;
+    void DrawTilemap(int mapId, int x, int y, int flags = 0);
+
 private:
     // 禁止拷贝
     GameLib(const GameLib &);
@@ -358,6 +365,9 @@ private:
 
     // 内部精灵管理
     int _AllocSpriteSlot();
+
+    // 内部 Tilemap 管理
+    int _AllocTilemapSlot();
 
 private:
     // 窗口状态
@@ -393,6 +403,17 @@ private:
     // 精灵存储
     struct GameSprite { int width, height; uint32_t *pixels; bool used; };
     std::vector<GameSprite> _sprites;
+
+    // Tilemap 存储
+    struct GameTilemap {
+        int cols, rows;     // 地图网格大小
+        int tileSize;       // 瓦片边长（像素）
+        int tilesetId;      // tileset 精灵 ID
+        int tilesetCols;    // tileset 每行有多少个瓦片
+        int *tiles;         // cols * rows 的瓦片 ID 数组（-1 = 空）
+        bool used;          // 槽位是否被使用
+    };
+    std::vector<GameTilemap> _tilemaps;
 
     // 音乐状态（MCI）
     bool _musicPlaying;
@@ -778,6 +799,14 @@ GameLib::~GameLib()
             free(_sprites[i].pixels);
             _sprites[i].pixels = NULL;
             _sprites[i].used = false;
+        }
+    }
+    // 释放所有 Tilemap
+    for (size_t i = 0; i < _tilemaps.size(); i++) {
+        if (_tilemaps[i].used && _tilemaps[i].tiles) {
+            free(_tilemaps[i].tiles);
+            _tilemaps[i].tiles = NULL;
+            _tilemaps[i].used = false;
         }
     }
     // 释放帧缓冲
@@ -1884,6 +1913,193 @@ void GameLib::FillCell(int gridX, int gridY, int row, int col, int cellSize, uin
 {
     FillRect(gridX + col * cellSize + 1, gridY + row * cellSize + 1,
              cellSize - 1, cellSize - 1, color);
+}
+
+
+//=====================================================================
+// Tilemap 系统
+//=====================================================================
+
+int GameLib::_AllocTilemapSlot()
+{
+    for (size_t i = 0; i < _tilemaps.size(); i++) {
+        if (!_tilemaps[i].used) return (int)i;
+    }
+    GameTilemap tm;
+    tm.cols = 0;
+    tm.rows = 0;
+    tm.tileSize = 0;
+    tm.tilesetId = -1;
+    tm.tilesetCols = 0;
+    tm.tiles = NULL;
+    tm.used = false;
+    _tilemaps.push_back(tm);
+    return (int)(_tilemaps.size() - 1);
+}
+
+int GameLib::CreateTilemap(int cols, int rows, int tileSize, int tilesetId)
+{
+    if (cols <= 0 || rows <= 0 || tileSize <= 0) return -1;
+    if (tilesetId < 0 || tilesetId >= (int)_sprites.size()) return -1;
+    if (!_sprites[tilesetId].used) return -1;
+
+    int id = _AllocTilemapSlot();
+    int *tiles = (int*)malloc(cols * rows * sizeof(int));
+    if (!tiles) return -1;
+    for (int i = 0; i < cols * rows; i++) tiles[i] = -1;
+
+    _tilemaps[id].cols = cols;
+    _tilemaps[id].rows = rows;
+    _tilemaps[id].tileSize = tileSize;
+    _tilemaps[id].tilesetId = tilesetId;
+    _tilemaps[id].tilesetCols = _sprites[tilesetId].width / tileSize;
+    _tilemaps[id].tiles = tiles;
+    _tilemaps[id].used = true;
+
+    return id;
+}
+
+void GameLib::FreeTilemap(int mapId)
+{
+    if (mapId < 0 || mapId >= (int)_tilemaps.size()) return;
+    if (!_tilemaps[mapId].used) return;
+    if (_tilemaps[mapId].tiles) {
+        free(_tilemaps[mapId].tiles);
+        _tilemaps[mapId].tiles = NULL;
+    }
+    _tilemaps[mapId].used = false;
+}
+
+void GameLib::SetTile(int mapId, int col, int row, int tileId)
+{
+    if (mapId < 0 || mapId >= (int)_tilemaps.size()) return;
+    if (!_tilemaps[mapId].used) return;
+    if (col < 0 || col >= _tilemaps[mapId].cols) return;
+    if (row < 0 || row >= _tilemaps[mapId].rows) return;
+    _tilemaps[mapId].tiles[row * _tilemaps[mapId].cols + col] = tileId;
+}
+
+int GameLib::GetTile(int mapId, int col, int row) const
+{
+    if (mapId < 0 || mapId >= (int)_tilemaps.size()) return -1;
+    if (!_tilemaps[mapId].used) return -1;
+    if (col < 0 || col >= _tilemaps[mapId].cols) return -1;
+    if (row < 0 || row >= _tilemaps[mapId].rows) return -1;
+    return _tilemaps[mapId].tiles[row * _tilemaps[mapId].cols + col];
+}
+
+void GameLib::DrawTilemap(int mapId, int x, int y, int flags)
+{
+    if (mapId < 0 || mapId >= (int)_tilemaps.size()) return;
+    if (!_tilemaps[mapId].used) return;
+
+    GameTilemap &tm = _tilemaps[mapId];
+    int tsId = tm.tilesetId;
+    if (tsId < 0 || tsId >= (int)_sprites.size()) return;
+    if (!_sprites[tsId].used) return;
+
+    GameSprite &tset = _sprites[tsId];
+    int ts = tm.tileSize;
+    int tsCols = tm.tilesetCols;
+    if (tsCols <= 0) return;
+
+    // 计算屏幕可见的瓦片范围，避免遍历整张地图
+    int col0 = (-x) / ts;
+    int row0 = (-y) / ts;
+    int col1 = (-x + _width - 1) / ts + 1;
+    int row1 = (-y + _height - 1) / ts + 1;
+    if (col0 < 0) col0 = 0;
+    if (row0 < 0) row0 = 0;
+    if (col1 > tm.cols) col1 = tm.cols;
+    if (row1 > tm.rows) row1 = tm.rows;
+
+    bool useAlpha    = (flags & SPRITE_ALPHA) != 0;
+    bool useColorKey = (flags & SPRITE_COLORKEY) != 0;
+
+    for (int r = row0; r < row1; r++) {
+        for (int c = col0; c < col1; c++) {
+            int tid = tm.tiles[r * tm.cols + c];
+            if (tid < 0) continue;
+
+            // tileset 中该瓦片的像素起点
+            int srcCol = tid % tsCols;
+            int srcRow = tid / tsCols;
+            int srcX0 = srcCol * ts;
+            int srcY0 = srcRow * ts;
+
+            // 屏幕目标位置
+            int dstX0 = x + c * ts;
+            int dstY0 = y + r * ts;
+
+            // 瓦片内裁剪
+            int ix0 = 0, iy0 = 0, ix1 = ts, iy1 = ts;
+            if (dstX0 < 0) ix0 = -dstX0;
+            if (dstY0 < 0) iy0 = -dstY0;
+            if (dstX0 + ix1 > _width)  ix1 = _width - dstX0;
+            if (dstY0 + iy1 > _height) iy1 = _height - dstY0;
+
+            if (useAlpha) {
+                // ---- Alpha 混合路径 ----
+                for (int iy = iy0; iy < iy1; iy++) {
+                    int sy = srcY0 + iy;
+                    if (sy < 0 || sy >= tset.height) continue;
+                    const uint32_t *srcRow_ = tset.pixels + sy * tset.width;
+                    uint32_t *dstRow_ = _framebuffer + (dstY0 + iy) * _width;
+                    for (int ix = ix0; ix < ix1; ix++) {
+                        int sx = srcX0 + ix;
+                        if (sx < 0 || sx >= tset.width) continue;
+                        uint32_t sc = srcRow_[sx];
+                        if (useColorKey && sc == COLORKEY_DEFAULT) continue;
+                        uint32_t sa = COLOR_GET_A(sc);
+                        if (sa == 0) continue;
+                        int dx = dstX0 + ix;
+                        if (sa == 255) {
+                            dstRow_[dx] = sc;
+                        } else {
+                            uint32_t dc = dstRow_[dx];
+                            uint32_t ia = 255 - sa;
+                            uint32_t or_ = (sa * COLOR_GET_R(sc) + ia * COLOR_GET_R(dc)) / 255;
+                            uint32_t og = (sa * COLOR_GET_G(sc) + ia * COLOR_GET_G(dc)) / 255;
+                            uint32_t ob = (sa * COLOR_GET_B(sc) + ia * COLOR_GET_B(dc)) / 255;
+                            dstRow_[dx] = COLOR_ARGB(255, or_, og, ob);
+                        }
+                    }
+                }
+            } else if (useColorKey) {
+                // ---- ColorKey 透明色路径 ----
+                for (int iy = iy0; iy < iy1; iy++) {
+                    int sy = srcY0 + iy;
+                    if (sy < 0 || sy >= tset.height) continue;
+                    const uint32_t *srcRow_ = tset.pixels + sy * tset.width;
+                    uint32_t *dstRow_ = _framebuffer + (dstY0 + iy) * _width;
+                    for (int ix = ix0; ix < ix1; ix++) {
+                        int sx = srcX0 + ix;
+                        if (sx < 0 || sx >= tset.width) continue;
+                        uint32_t sc = srcRow_[sx];
+                        if (sc != COLORKEY_DEFAULT) {
+                            dstRow_[dstX0 + ix] = sc;
+                        }
+                    }
+                }
+            } else {
+                // ---- 不透明路径（跳过 alpha=0） ----
+                for (int iy = iy0; iy < iy1; iy++) {
+                    int sy = srcY0 + iy;
+                    if (sy < 0 || sy >= tset.height) continue;
+                    const uint32_t *srcRow_ = tset.pixels + sy * tset.width;
+                    uint32_t *dstRow_ = _framebuffer + (dstY0 + iy) * _width;
+                    for (int ix = ix0; ix < ix1; ix++) {
+                        int sx = srcX0 + ix;
+                        if (sx < 0 || sx >= tset.width) continue;
+                        uint32_t sc = srcRow_[sx];
+                        if (COLOR_GET_A(sc) > 0) {
+                            dstRow_[dstX0 + ix] = sc;
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 
