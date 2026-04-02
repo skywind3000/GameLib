@@ -119,6 +119,7 @@ typedef BOOL (WINAPI *PFN_TextOutW)(HDC, int, int, LPCWSTR, int);
 typedef COLORREF (WINAPI *PFN_SetTextColor)(HDC, COLORREF);
 typedef int (WINAPI *PFN_SetBkMode)(HDC, int);
 typedef BOOL (WINAPI *PFN_GetTextExtentPoint32W)(HDC, LPCWSTR, int, SIZE*);
+typedef BOOL (WINAPI *PFN_GdiFlush)(void);
 
 // winmm.dll
 typedef DWORD   (WINAPI *PFN_timeGetTime)(void);
@@ -171,8 +172,8 @@ typedef HRESULT (WINAPI *PFN_CreateStreamOnHGlobal)(HGLOBAL, BOOL, void**);
 #define COLOR_TRANSPARENT 0x00000000
 
 // Color helper macros
-#define COLOR_RGB(r, g, b)     ((uint32_t)(0xFF000000 | ((r) << 16) | ((g) << 8) | (b)))
-#define COLOR_ARGB(a, r, g, b) ((uint32_t)(((a) << 24) | ((r) << 16) | ((g) << 8) | (b)))
+#define COLOR_RGB(r, g, b)     ((uint32_t)(0xFF000000 | (((r) & 0xFF) << 16) | (((g) & 0xFF) << 8) | ((b) & 0xFF)))
+#define COLOR_ARGB(a, r, g, b) ((uint32_t)((((a) & 0xFF) << 24) | (((r) & 0xFF) << 16) | (((g) & 0xFF) << 8) | ((b) & 0xFF)))
 
 // Color component extraction
 #define COLOR_GET_A(c)    (((c) >> 24) & 0xFF)
@@ -338,6 +339,7 @@ public:
     int GetMouseX() const;
     int GetMouseY() const;
     bool IsMouseDown(int button) const;
+    bool IsMousePressed(int button) const;
 
     // -------- Sound --------
     void PlayBeep(int frequency, int duration);
@@ -415,6 +417,7 @@ private:
     int _mouseX;
     int _mouseY;
     int _mouseButtons[3];
+    int _mouseButtons_prev[3];
 
     // timing
     DWORD _timeStart;
@@ -572,6 +575,7 @@ static PFN_TextOutW            _gl_TextOutW           = NULL;
 static PFN_SetTextColor        _gl_SetTextColor       = NULL;
 static PFN_SetBkMode           _gl_SetBkMode          = NULL;
 static PFN_GetTextExtentPoint32W _gl_GetTextExtentPoint32W = NULL;
+static PFN_GdiFlush              _gl_GdiFlush              = NULL;
 static PFN_timeGetTime         _gl_timeGetTime        = NULL;
 static PFN_timeBeginPeriod     _gl_timeBeginPeriod    = NULL;
 static PFN_timeEndPeriod       _gl_timeEndPeriod      = NULL;
@@ -601,6 +605,7 @@ static int _gamelib_load_apis()
     _gl_SetTextColor      = (PFN_SetTextColor)GetProcAddress(hGdi32, "SetTextColor");
     _gl_SetBkMode         = (PFN_SetBkMode)GetProcAddress(hGdi32, "SetBkMode");
     _gl_GetTextExtentPoint32W = (PFN_GetTextExtentPoint32W)GetProcAddress(hGdi32, "GetTextExtentPoint32W");
+    _gl_GdiFlush              = (PFN_GdiFlush)GetProcAddress(hGdi32, "GdiFlush");
 
     _gl_timeGetTime       = (PFN_timeGetTime)GetProcAddress(hWinmm, "timeGetTime");
     _gl_timeBeginPeriod   = (PFN_timeBeginPeriod)GetProcAddress(hWinmm, "timeBeginPeriod");
@@ -647,7 +652,7 @@ static int _gamelib_gdiplus_init()
     if (!hGdiPlus) return -1;
 
     HMODULE hOle32 = LoadLibraryA("ole32.dll");
-    if (!hOle32) return -2;
+    if (!hOle32) { FreeLibrary(hGdiPlus); return -2; }
 
     _gl_GdiplusStartup = (PFN_GdiplusStartup)
         GetProcAddress(hGdiPlus, "GdiplusStartup");
@@ -670,6 +675,7 @@ static int _gamelib_gdiplus_init()
         !_gl_GdipGetImageWidth || !_gl_GdipGetImageHeight ||
         !_gl_GdipBitmapLockBits || !_gl_GdipBitmapUnlockBits ||
         !_gl_GdipDisposeImage || !_gl_CreateStreamOnHGlobal) {
+        FreeLibrary(hOle32); FreeLibrary(hGdiPlus);
         return -3;
     }
 
@@ -758,7 +764,7 @@ static uint32_t* _gamelib_gdiplus_load(
             goto cleanup;
         }
 
-        pixels = (uint32_t*)malloc(width * height * sizeof(uint32_t));
+        pixels = (uint32_t*)malloc((size_t)width * height * sizeof(uint32_t));
         if (pixels) {
             for (UINT y = 0; y < height; y++) {
                 uint32_t *dst = pixels + y * width;
@@ -767,16 +773,16 @@ static uint32_t* _gamelib_gdiplus_load(
             }
             // 24-bit images may have alpha=0 after GDI+ conversion, detect and fix to 255
             {
-                UINT total = width * height;
+                size_t total = (size_t)width * height;
                 bool allZeroAlpha = true;
-                for (UINT i = 0; i < total; i++) {
+                for (size_t i = 0; i < total; i++) {
                     if (COLOR_GET_A(pixels[i]) != 0) {
                         allZeroAlpha = false;
                         break;
                     }
                 }
                 if (allZeroAlpha) {
-                    for (UINT i = 0; i < total; i++) {
+                    for (size_t i = 0; i < total; i++) {
                         pixels[i] |= 0xFF000000;
                     }
                 }
@@ -821,6 +827,7 @@ GameLib::GameLib()
     _mouseX = 0;
     _mouseY = 0;
     memset(_mouseButtons, 0, sizeof(_mouseButtons));
+    memset(_mouseButtons_prev, 0, sizeof(_mouseButtons_prev));
     _timeStart = 0;
     _timePrev = 0;
     _deltaTime = 0.0f;
@@ -1173,6 +1180,7 @@ int GameLib::Open(int width, int height, const char *title, bool center)
     memset(_keys, 0, sizeof(_keys));
     memset(_keys_prev, 0, sizeof(_keys_prev));
     memset(_mouseButtons, 0, sizeof(_mouseButtons));
+    memset(_mouseButtons_prev, 0, sizeof(_mouseButtons_prev));
 
     return 0;
 }
@@ -1201,8 +1209,9 @@ void GameLib::Update()
         ::ReleaseDC(_hwnd, hdc);
     }
 
-    // Save previous frame key state (for edge detection)
+    // Save previous frame key/mouse state (for edge detection)
     memcpy(_keys_prev, _keys, sizeof(_keys));
+    memcpy(_mouseButtons_prev, _mouseButtons, sizeof(_mouseButtons));
 
     // Dispatch messages
     _DispatchMessages();
@@ -1385,14 +1394,19 @@ void GameLib::_DrawHLine(int x1, int x2, int y, uint32_t color)
 //---------------------------------------------------------------------
 void GameLib::DrawRect(int x, int y, int w, int h, uint32_t color)
 {
-    DrawLine(x, y, x + w - 1, y, color);
-    DrawLine(x, y + h - 1, x + w - 1, y + h - 1, color);
-    DrawLine(x, y, x, y + h - 1, color);
-    DrawLine(x + w - 1, y, x + w - 1, y + h - 1, color);
+    if (w <= 0 || h <= 0) return;
+    _DrawHLine(x, x + w - 1, y, color);
+    _DrawHLine(x, x + w - 1, y + h - 1, color);
+    // Vertical edges (skip corners already drawn by _DrawHLine)
+    for (int j = y + 1; j < y + h - 1; j++) {
+        SetPixel(x, j, color);
+        SetPixel(x + w - 1, j, color);
+    }
 }
 
 void GameLib::FillRect(int x, int y, int w, int h, uint32_t color)
 {
+    if (!_framebuffer) return;
     int x1 = x, y1 = y, x2 = x + w, y2 = y + h;
     if (x1 < 0) x1 = 0;
     if (y1 < 0) y1 = 0;
@@ -1542,7 +1556,7 @@ void GameLib::DrawText(int x, int y, const char *text, uint32_t color)
 void GameLib::DrawNumber(int x, int y, int number, uint32_t color)
 {
     char buf[32];
-    sprintf(buf, "%d", number);
+    snprintf(buf, sizeof(buf), "%d", number);
     DrawText(x, y, buf, color);
 }
 
@@ -1626,6 +1640,32 @@ void GameLib::DrawTextGDI(int x, int y, const char *text, uint32_t color, const 
         // Draw text
         _gl_TextOutW(_memDC, x, y, wtext, wtextLen - 1);
 
+        // Flush GDI to ensure writes are visible in the framebuffer
+        if (_gl_GdiFlush) _gl_GdiFlush();
+
+        // Fix alpha channel: GDI TextOut writes alpha=0, which makes text
+        // invisible to alpha-aware drawing. Scan the text bounding box and
+        // set alpha=0xFF for any pixel that GDI modified.
+        if (_framebuffer) {
+            SIZE sz = { 0, 0 };
+            _gl_GetTextExtentPoint32W(_memDC, wtext, wtextLen - 1, &sz);
+            int x0 = x, y0 = y;
+            int x1 = x + sz.cx, y1 = y + sz.cy;
+            if (x0 < 0) x0 = 0;
+            if (y0 < 0) y0 = 0;
+            if (x1 > _width) x1 = _width;
+            if (y1 > _height) y1 = _height;
+            for (int py = y0; py < y1; py++) {
+                uint32_t *row = _framebuffer + py * _width;
+                for (int px = x0; px < x1; px++) {
+                    uint32_t c = row[px];
+                    if ((c & 0xFF000000) == 0 && (c & 0x00FFFFFF) != 0) {
+                        row[px] = c | 0xFF000000;
+                    }
+                }
+            }
+        }
+
         // Restore old font
         _gl_SelectObject(_memDC, oldFont);
         _gl_DeleteObject(font);
@@ -1708,11 +1748,11 @@ int GameLib::_AllocSpriteSlot()
 
 int GameLib::CreateSprite(int width, int height)
 {
-    if (width <= 0 || height <= 0) return -1;
+    if (width <= 0 || height <= 0 || width > 16384 || height > 16384) return -1;
     int id = _AllocSpriteSlot();
-    uint32_t *pixels = (uint32_t*)malloc(width * height * sizeof(uint32_t));
+    uint32_t *pixels = (uint32_t*)malloc((size_t)width * height * sizeof(uint32_t));
     if (!pixels) return -1;
-    memset(pixels, 0, width * height * sizeof(uint32_t));
+    memset(pixels, 0, (size_t)width * height * sizeof(uint32_t));
     _sprites[id].width = width;
     _sprites[id].height = height;
     _sprites[id].pixels = pixels;
@@ -1729,15 +1769,22 @@ int GameLib::LoadSpriteBMP(const char *filename)
     if (fread(header, 1, 54, fp) != 54) { fclose(fp); return -1; }
     if (header[0] != 'B' || header[1] != 'M') { fclose(fp); return -1; }
 
-    int dataOffset = *(int*)&header[10];
-    int width      = *(int*)&header[18];
-    int height     = *(int*)&header[22];
-    int bpp        = *(short*)&header[28];
+    // Read header fields using memcpy to avoid strict aliasing / unaligned access
+    int dataOffset; memcpy(&dataOffset, &header[10], 4);
+    int width;      memcpy(&width,      &header[18], 4);
+    int height;     memcpy(&height,     &header[22], 4);
+    short bppShort; memcpy(&bppShort,   &header[28], 2);
+    int bpp = bppShort;
 
     if (bpp != 24 && bpp != 32) { fclose(fp); return -1; }
 
     bool bottomUp = (height > 0);
     if (height < 0) height = -height;
+
+    // Validate dimensions to prevent integer overflow and unreasonable allocations
+    if (width <= 0 || height <= 0 || width > 16384 || height > 16384) {
+        fclose(fp); return -1;
+    }
 
     fseek(fp, dataOffset, SEEK_SET);
 
@@ -1828,21 +1875,7 @@ void GameLib::FreeSprite(int id)
 
 void GameLib::DrawSprite(int id, int x, int y)
 {
-    if (id < 0 || id >= (int)_sprites.size()) return;
-    if (!_sprites[id].used) return;
-    GameSprite &spr = _sprites[id];
-    for (int sy = 0; sy < spr.height; sy++) {
-        int dy = y + sy;
-        if (dy < 0 || dy >= _height) continue;
-        for (int sx = 0; sx < spr.width; sx++) {
-            int dx = x + sx;
-            if (dx < 0 || dx >= _width) continue;
-            uint32_t c = spr.pixels[sy * spr.width + sx];
-            if (COLOR_GET_A(c) > 0) {
-                _framebuffer[dy * _width + dx] = c;
-            }
-        }
-    }
+    DrawSpriteEx(id, x, y, 0);
 }
 
 void GameLib::DrawSpriteEx(int id, int x, int y, int flags)
@@ -1996,6 +2029,12 @@ bool GameLib::IsMouseDown(int button) const
     return _mouseButtons[button] != 0;
 }
 
+bool GameLib::IsMousePressed(int button) const
+{
+    if (button < 0 || button > 2) return false;
+    return (_mouseButtons[button] != 0) && (_mouseButtons_prev[button] == 0);
+}
+
 
 //=====================================================================
 // Sound
@@ -2020,6 +2059,13 @@ void GameLib::StopWAV()
 
 void GameLib::PlayMusic(const char *filename, bool loop)
 {
+    if (!filename) return;
+
+    // Reject filenames containing quotes (MCI command injection prevention)
+    for (const char *p = filename; *p; p++) {
+        if (*p == '"') return;
+    }
+
     // Stop previous music first
     if (_musicPlaying) {
         _gl_mciSendStringA("stop gamelib_music", NULL, 0, NULL);
@@ -2028,10 +2074,12 @@ void GameLib::PlayMusic(const char *filename, bool loop)
     }
     // Open audio file (supports mp3/mid/wav etc., formats supported by MCI)
     char cmd[1024];
-    snprintf(cmd, sizeof(cmd), "open \"%s\" type mpegvideo alias gamelib_music", filename);
+    int n = snprintf(cmd, sizeof(cmd), "open \"%s\" type mpegvideo alias gamelib_music", filename);
+    if (n < 0 || n >= (int)sizeof(cmd)) return;  // truncation guard
     if (_gl_mciSendStringA(cmd, NULL, 0, NULL) != 0) {
         // If mpegvideo fails, try auto-detect type
-        snprintf(cmd, sizeof(cmd), "open \"%s\" alias gamelib_music", filename);
+        n = snprintf(cmd, sizeof(cmd), "open \"%s\" alias gamelib_music", filename);
+        if (n < 0 || n >= (int)sizeof(cmd)) return;  // truncation guard
         if (_gl_mciSendStringA(cmd, NULL, 0, NULL) != 0) {
             return;
         }
@@ -2075,10 +2123,10 @@ bool GameLib::RectOverlap(int x1, int y1, int w1, int h1,
 bool GameLib::CircleOverlap(int cx1, int cy1, int r1,
                             int cx2, int cy2, int r2)
 {
-    int dx = cx1 - cx2;
-    int dy = cy1 - cy2;
-    int distSq = dx * dx + dy * dy;
-    int rSum = r1 + r2;
+    int64_t dx = cx1 - cx2;
+    int64_t dy = cy1 - cy2;
+    int64_t distSq = dx * dx + dy * dy;
+    int64_t rSum = r1 + r2;
     return distSq <= rSum * rSum;
 }
 
@@ -2143,8 +2191,9 @@ int GameLib::CreateTilemap(int cols, int rows, int tileSize, int tilesetId)
     if (tilesetId < 0 || tilesetId >= (int)_sprites.size()) return -1;
     if (!_sprites[tilesetId].used) return -1;
 
+    if (cols > 4096 || rows > 4096) return -1;  // prevent overflow
     int id = _AllocTilemapSlot();
-    int *tiles = (int*)malloc(cols * rows * sizeof(int));
+    int *tiles = (int*)malloc((size_t)cols * rows * sizeof(int));
     if (!tiles) return -1;
     for (int i = 0; i < cols * rows; i++) tiles[i] = -1;
 
