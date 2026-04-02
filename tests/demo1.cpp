@@ -7,7 +7,7 @@ int main()
 	game.ShowFps(true);
     while (!game.IsClosed()) {
         game.Clear(COLOR_DARK_BLUE);
-        game.DrawTextScale(200, 250, "Hello, World!", COLOR_GOLD, 3);
+        game.DrawTextScale(200, 250, "Hello, World!!", COLOR_GOLD, 3);
         game.DrawText(280, 320, "Press ESC to exit", COLOR_GRAY);
 
         if (game.IsKeyPressed(KEY_ESCAPE))

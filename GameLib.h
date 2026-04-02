@@ -114,6 +114,19 @@ typedef DWORD   (WINAPI *PFN_timeEndPeriod)(UINT);
 typedef BOOL    (WINAPI *PFN_PlaySoundA)(LPCSTR, HMODULE, DWORD);
 typedef MCIERROR (WINAPI *PFN_mciSendStringA)(LPCSTR, LPSTR, UINT, HWND);
 
+// gdiplus.dll
+typedef int  (WINAPI *PFN_GdiplusStartup)(ULONG_PTR*, void*, void*);
+typedef void (WINAPI *PFN_GdiplusShutdown)(ULONG_PTR);
+typedef int  (WINAPI *PFN_GdipCreateBitmapFromStream)(void*, void**);
+typedef int  (WINAPI *PFN_GdipGetImageWidth)(void*, UINT*);
+typedef int  (WINAPI *PFN_GdipGetImageHeight)(void*, UINT*);
+typedef int  (WINAPI *PFN_GdipBitmapLockBits)(void*, const int*, UINT, int, void*);
+typedef int  (WINAPI *PFN_GdipBitmapUnlockBits)(void*, void*);
+typedef int  (WINAPI *PFN_GdipDisposeImage)(void*);
+
+// ole32.dll
+typedef HRESULT (WINAPI *PFN_CreateStreamOnHGlobal)(HGLOBAL, BOOL, void**);
+
 
 //=====================================================================
 // 第一部分：常量定义
@@ -233,6 +246,7 @@ typedef MCIERROR (WINAPI *PFN_mciSendStringA)(LPCSTR, LPSTR, UINT, HWND);
 #define SPRITE_FLIP_H     1    // 水平翻转
 #define SPRITE_FLIP_V     2    // 垂直翻转
 #define SPRITE_COLORKEY   4    // 启用透明色
+#define SPRITE_ALPHA      8    // 启用 Alpha 混合
 
 // 默认 Color Key 颜色：品红 (255, 0, 255)，常见 2D 资源透明色
 #ifndef COLORKEY_DEFAULT
@@ -289,6 +303,7 @@ public:
     // -------- 精灵系统（整数 ID 管理） --------
     int CreateSprite(int width, int height);
     int LoadSpriteBMP(const char *filename);
+    int LoadSprite(const char *filename);
     void FreeSprite(int id);
     void DrawSprite(int id, int x, int y);
     void DrawSpriteEx(int id, int x, int y, int flags);
@@ -534,6 +549,181 @@ static int _gamelib_load_apis()
     _gamelib_apis_loaded = 1;
     return 0;
 }
+
+
+//---------------------------------------------------------------------
+// GDI+ 动态加载（用于 PNG/JPG 图片加载）
+//---------------------------------------------------------------------
+static PFN_GdiplusStartup             _gl_GdiplusStartup = NULL;
+static PFN_GdipCreateBitmapFromStream _gl_GdipCreateBitmapFromStream = NULL;
+static PFN_GdipGetImageWidth          _gl_GdipGetImageWidth = NULL;
+static PFN_GdipGetImageHeight         _gl_GdipGetImageHeight = NULL;
+static PFN_GdipBitmapLockBits         _gl_GdipBitmapLockBits = NULL;
+static PFN_GdipBitmapUnlockBits       _gl_GdipBitmapUnlockBits = NULL;
+static PFN_GdipDisposeImage           _gl_GdipDisposeImage = NULL;
+static PFN_CreateStreamOnHGlobal      _gl_CreateStreamOnHGlobal = NULL;
+
+static int _gamelib_gdiplus_ready = 0;
+static ULONG_PTR _gamelib_gdip_token = 0;
+
+// 初始化 GDI+：加载 gdiplus.dll / ole32.dll 并调用 GdiplusStartup
+static int _gamelib_gdiplus_init()
+{
+    if (_gamelib_gdiplus_ready) return 0;
+
+    HMODULE hGdiPlus = LoadLibraryA("gdiplus.dll");
+    if (!hGdiPlus) return -1;
+
+    HMODULE hOle32 = LoadLibraryA("ole32.dll");
+    if (!hOle32) return -2;
+
+    _gl_GdiplusStartup = (PFN_GdiplusStartup)
+        GetProcAddress(hGdiPlus, "GdiplusStartup");
+    _gl_GdipCreateBitmapFromStream = (PFN_GdipCreateBitmapFromStream)
+        GetProcAddress(hGdiPlus, "GdipCreateBitmapFromStream");
+    _gl_GdipGetImageWidth = (PFN_GdipGetImageWidth)
+        GetProcAddress(hGdiPlus, "GdipGetImageWidth");
+    _gl_GdipGetImageHeight = (PFN_GdipGetImageHeight)
+        GetProcAddress(hGdiPlus, "GdipGetImageHeight");
+    _gl_GdipBitmapLockBits = (PFN_GdipBitmapLockBits)
+        GetProcAddress(hGdiPlus, "GdipBitmapLockBits");
+    _gl_GdipBitmapUnlockBits = (PFN_GdipBitmapUnlockBits)
+        GetProcAddress(hGdiPlus, "GdipBitmapUnlockBits");
+    _gl_GdipDisposeImage = (PFN_GdipDisposeImage)
+        GetProcAddress(hGdiPlus, "GdipDisposeImage");
+    _gl_CreateStreamOnHGlobal = (PFN_CreateStreamOnHGlobal)
+        GetProcAddress(hOle32, "CreateStreamOnHGlobal");
+
+    if (!_gl_GdiplusStartup || !_gl_GdipCreateBitmapFromStream ||
+        !_gl_GdipGetImageWidth || !_gl_GdipGetImageHeight ||
+        !_gl_GdipBitmapLockBits || !_gl_GdipBitmapUnlockBits ||
+        !_gl_GdipDisposeImage || !_gl_CreateStreamOnHGlobal) {
+        return -3;
+    }
+
+    // GdiplusStartup
+    struct { unsigned int ver; void *cb; BOOL noThread; BOOL noCodecs; } si;
+    si.ver = 1; si.cb = NULL; si.noThread = FALSE; si.noCodecs = FALSE;
+
+    if (_gl_GdiplusStartup(&_gamelib_gdip_token, &si, NULL) != 0)
+        return -4;
+
+    _gamelib_gdiplus_ready = 1;
+    return 0;
+}
+
+// 通过 COM vtable 调用 IUnknown::Release（无需 #include <ObjBase.h>）
+static void _gamelib_com_release(void *obj)
+{
+    if (!obj) return;
+    // COM 对象布局：第一个指针指向 vtable
+    // IUnknown vtable: [0]=QueryInterface, [1]=AddRef, [2]=Release
+    typedef unsigned long (WINAPI *PFN_Release)(void*);
+    void **vtbl = *(void***)obj;
+    PFN_Release release_fn = (PFN_Release)vtbl[2];
+    release_fn(obj);
+}
+
+// GDI+ PixelFormat32bppARGB
+#define _GL_PIXFMT_32bppARGB 2498570
+
+// 通过 GDI+ 从内存加载图片（PNG/JPG/BMP/GIF/TIFF 等），返回 ARGB 像素
+static uint32_t* _gamelib_gdiplus_load(
+    const void *data, long size, int *out_w, int *out_h)
+{
+    if (_gamelib_gdiplus_init() != 0) return NULL;
+
+    // 分配全局内存并复制文件数据
+    HGLOBAL hg = GlobalAlloc(GMEM_MOVEABLE, size);
+    if (!hg) return NULL;
+
+    void *pg = GlobalLock(hg);
+    if (!pg) { GlobalFree(hg); return NULL; }
+    memcpy(pg, data, size);
+    GlobalUnlock(hg);
+
+    // 创建 IStream
+    void *pStream = NULL;
+    if (_gl_CreateStreamOnHGlobal(hg, FALSE, &pStream) != 0 || !pStream) {
+        GlobalFree(hg);
+        return NULL;
+    }
+
+    // 从 IStream 创建 GDI+ Bitmap
+    void *gpBitmap = NULL;
+    if (_gl_GdipCreateBitmapFromStream(pStream, &gpBitmap) != 0 || !gpBitmap) {
+        _gamelib_com_release(pStream);
+        GlobalFree(hg);
+        return NULL;
+    }
+
+    // 获取图片尺寸
+    UINT width = 0, height = 0;
+    _gl_GdipGetImageWidth(gpBitmap, &width);
+    _gl_GdipGetImageHeight(gpBitmap, &height);
+
+    uint32_t *pixels = NULL;
+
+    if (width == 0 || height == 0) goto cleanup;
+
+    // LockBits 结构体（匹配 GDI+ BitmapData 布局）
+    {
+        struct {
+            UINT    bWidth;
+            UINT    bHeight;
+            INT     bStride;
+            INT     bPixelFormat;
+            void   *bScan0;
+            ULONG_PTR bReserved;
+        } bd;
+        memset(&bd, 0, sizeof(bd));
+
+        int lockRect[4] = { 0, 0, (int)width, (int)height };
+
+        // ImageLockModeRead = 1，请求 32bppARGB 格式
+        if (_gl_GdipBitmapLockBits(gpBitmap, lockRect, 1,
+                _GL_PIXFMT_32bppARGB, &bd) != 0) {
+            goto cleanup;
+        }
+
+        pixels = (uint32_t*)malloc(width * height * sizeof(uint32_t));
+        if (pixels) {
+            for (UINT y = 0; y < height; y++) {
+                uint32_t *dst = pixels + y * width;
+                const char *src = (const char*)bd.bScan0 + y * bd.bStride;
+                memcpy(dst, src, width * sizeof(uint32_t));
+            }
+            // 24 位图片经 GDI+ 转换后 alpha 可能为 0，检测并修正为 255
+            {
+                UINT total = width * height;
+                bool allZeroAlpha = true;
+                for (UINT i = 0; i < total; i++) {
+                    if (COLOR_GET_A(pixels[i]) != 0) {
+                        allZeroAlpha = false;
+                        break;
+                    }
+                }
+                if (allZeroAlpha) {
+                    for (UINT i = 0; i < total; i++) {
+                        pixels[i] |= 0xFF000000;
+                    }
+                }
+            }
+        }
+
+        _gl_GdipBitmapUnlockBits(gpBitmap, &bd);
+    }
+
+    if (out_w) *out_w = (int)width;
+    if (out_h) *out_h = (int)height;
+
+cleanup:
+    _gl_GdipDisposeImage(gpBitmap);
+    _gamelib_com_release(pStream);
+    GlobalFree(hg);
+    return pixels;
+}
+
 
 // 静态成员初始化
 bool GameLib::_srandDone = false;
@@ -1348,6 +1538,52 @@ int GameLib::LoadSpriteBMP(const char *filename)
     return id;
 }
 
+int GameLib::LoadSprite(const char *filename)
+{
+    // 读取文件到内存
+    FILE *fp = fopen(filename, "rb");
+    if (!fp) return -1;
+
+    fseek(fp, 0, SEEK_END);
+    long fileSize = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+
+    if (fileSize <= 0) { fclose(fp); return -1; }
+
+    unsigned char *fileData = (unsigned char*)malloc(fileSize);
+    if (!fileData) { fclose(fp); return -1; }
+
+    if ((long)fread(fileData, 1, fileSize, fp) != fileSize) {
+        free(fileData);
+        fclose(fp);
+        return -1;
+    }
+    fclose(fp);
+
+    // 通过 GDI+ 解码（支持 PNG/JPG/BMP/GIF/TIFF）
+    int imgW = 0, imgH = 0;
+    uint32_t *pixels = _gamelib_gdiplus_load(fileData, fileSize, &imgW, &imgH);
+
+    if (!pixels || imgW <= 0 || imgH <= 0) {
+        if (pixels) free(pixels);
+        // GDI+ 失败，若为 BMP 文件则回退到 LoadSpriteBMP
+        bool isBMP = (fileSize >= 2 && fileData[0] == 'B' && fileData[1] == 'M');
+        free(fileData);
+        return isBMP ? LoadSpriteBMP(filename) : -1;
+    }
+
+    free(fileData);
+
+    // 分配精灵槽位，直接使用 GDI+ 返回的像素数据
+    int id = _AllocSpriteSlot();
+    _sprites[id].width = imgW;
+    _sprites[id].height = imgH;
+    _sprites[id].pixels = pixels;
+    _sprites[id].used = true;
+
+    return id;
+}
+
 void GameLib::FreeSprite(int id)
 {
     if (id < 0 || id >= (int)_sprites.size()) return;
@@ -1387,20 +1623,66 @@ void GameLib::DrawSpriteEx(int id, int x, int y, int flags)
     GameSprite &spr = _sprites[id];
     bool flipH = (flags & SPRITE_FLIP_H) != 0;
     bool flipV = (flags & SPRITE_FLIP_V) != 0;
-    bool colorKey = (flags & SPRITE_COLORKEY) != 0;
 
-    for (int sy = 0; sy < spr.height; sy++) {
-        int srcY = flipV ? (spr.height - 1 - sy) : sy;
-        int dy = y + sy;
-        if (dy < 0 || dy >= _height) continue;
-        for (int sx = 0; sx < spr.width; sx++) {
-            int srcX = flipH ? (spr.width - 1 - sx) : sx;
-            int dx = x + sx;
-            if (dx < 0 || dx >= _width) continue;
-            uint32_t c = spr.pixels[srcY * spr.width + srcX];
-            if (colorKey && c == COLORKEY_DEFAULT) continue;
-            if (COLOR_GET_A(c) == 0) continue;
-            _framebuffer[dy * _width + dx] = c;
+    // 预裁剪，避免逐像素边界检查
+    int sx0 = 0, sx1 = spr.width;
+    int sy0 = 0, sy1 = spr.height;
+    if (x < 0) sx0 = -x;
+    if (y < 0) sy0 = -y;
+    if (x + sx1 > _width)  sx1 = _width - x;
+    if (y + sy1 > _height) sy1 = _height - y;
+    if (sx0 >= sx1 || sy0 >= sy1) return;
+
+    if (flags & SPRITE_ALPHA) {
+        // ---- Alpha 混合路径 ----
+        bool colorKey = (flags & SPRITE_COLORKEY) != 0;
+        for (int sy = sy0; sy < sy1; sy++) {
+            int srcY = flipV ? (spr.height - 1 - sy) : sy;
+            const uint32_t *srcRow = spr.pixels + srcY * spr.width;
+            uint32_t *dstRow = _framebuffer + (y + sy) * _width + x;
+            for (int sx = sx0; sx < sx1; sx++) {
+                int srcX = flipH ? (spr.width - 1 - sx) : sx;
+                uint32_t c = srcRow[srcX];
+                if (colorKey && c == COLORKEY_DEFAULT) continue;
+                uint32_t sa = COLOR_GET_A(c);
+                if (sa == 0) continue;
+                if (sa == 255) {
+                    dstRow[sx] = c;
+                } else {
+                    uint32_t dc = dstRow[sx];
+                    uint32_t ia = 255 - sa;
+                    uint32_t or_ = (sa * COLOR_GET_R(c) + ia * COLOR_GET_R(dc)) / 255;
+                    uint32_t og = (sa * COLOR_GET_G(c) + ia * COLOR_GET_G(dc)) / 255;
+                    uint32_t ob = (sa * COLOR_GET_B(c) + ia * COLOR_GET_B(dc)) / 255;
+                    dstRow[sx] = COLOR_ARGB(255, or_, og, ob);
+                }
+            }
+        }
+    } else if (flags & SPRITE_COLORKEY) {
+        // ---- ColorKey 透明色路径 ----
+        for (int sy = sy0; sy < sy1; sy++) {
+            int srcY = flipV ? (spr.height - 1 - sy) : sy;
+            const uint32_t *srcRow = spr.pixels + srcY * spr.width;
+            uint32_t *dstRow = _framebuffer + (y + sy) * _width + x;
+            for (int sx = sx0; sx < sx1; sx++) {
+                int srcX = flipH ? (spr.width - 1 - sx) : sx;
+                uint32_t c = srcRow[srcX];
+                if (c != COLORKEY_DEFAULT)
+                    dstRow[sx] = c;
+            }
+        }
+    } else {
+        // ---- 不透明路径（跳过 alpha=0） ----
+        for (int sy = sy0; sy < sy1; sy++) {
+            int srcY = flipV ? (spr.height - 1 - sy) : sy;
+            const uint32_t *srcRow = spr.pixels + srcY * spr.width;
+            uint32_t *dstRow = _framebuffer + (y + sy) * _width + x;
+            for (int sx = sx0; sx < sx1; sx++) {
+                int srcX = flipH ? (spr.width - 1 - sx) : sx;
+                uint32_t c = srcRow[srcX];
+                if (COLOR_GET_A(c) > 0)
+                    dstRow[sx] = c;
+            }
         }
     }
 }

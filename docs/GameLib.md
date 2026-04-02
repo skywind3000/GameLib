@@ -4,8 +4,8 @@
 
 `GameLib.h` 是一个面向初学者的 **单头文件游戏库**，基于 Win32 GDI，无需 SDL 或其他第三方库。目标用户是小朋友，用于在 Dev C++ (GCC 4.9.2) 环境下开发简单游戏（空战、俄罗斯方块、走迷宫等）。
 
-**文件位置**: `render/device/GameLib.h`
-**当前行数**: ~1606 行
+**文件位置**: `GameLib.h`
+**当前行数**: ~1893 行
 **最后修改**: 2026/04/02
 
 ---
@@ -63,13 +63,16 @@ GameLib.h
 │   ├── 键盘常量 (KEY_xxx)
 │   ├── 鼠标按键常量 (MOUSE_xxx)
 │   ├── 精灵标志 (SPRITE_xxx)
-│   └── Color Key 默认色 (COLORKEY_DEFAULT)
+│   ├── Color Key 默认色 (COLORKEY_DEFAULT)
+│   └── 动态加载函数指针类型 (gdi32/winmm/gdiplus/ole32)
 ├── 第二部分：类声明
 │   ├── GameSprite 结构体（GameLib 类内部嵌套）
 │   └── GameLib 类 (公开方法 + 私有成员)
 ├── 第三部分：8x8 点阵字体数据 (ASCII 32-126)
 ├── #ifdef GAMELIB_IMPLEMENTATION
 │   └── 第四部分：完整实现
+│       ├── 动态加载 API 初始化 (gdi32/winmm)
+│       ├── GDI+ 懒初始化与图片解码 (_gamelib_gdiplus_init, _gamelib_gdiplus_load)
 │       ├── 构造/析构
 │       ├── 窗口管理 (Open, IsClosed, Update, WaitFrame)
 │       ├── 帧缓冲操作 (Clear, SetPixel, GetPixel)
@@ -92,7 +95,6 @@ GameLib.h
 
 ```c
 #include <windows.h>
-#include <mmsystem.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -104,13 +106,17 @@ GameLib.h
 #include <string>
 ```
 
+> 注：不再 `#include <mmsystem.h>`，所需的 mmsystem 类型和常量（`SND_ASYNC`、`MCIERROR` 等）在头文件内自行声明。
+
 ### 3.2 链接库
 
 - `gdi32` — SetDIBitsToDevice（通过 LoadLibrary 动态加载）
 - `winmm` — timeGetTime, timeBeginPeriod, PlaySound, mciSendString（通过 LoadLibrary 动态加载）
+- `gdiplus` — GdiplusStartup, GdipCreateBitmapFromStream, GdipBitmapLockBits 等（通过 LoadLibrary 动态加载，首次调用 `LoadSprite` 时懒加载）
+- `ole32` — CreateStreamOnHGlobal（通过 LoadLibrary 动态加载，随 gdiplus 一起加载）
 - `user32` — 窗口管理（MSVC 自动链接，GCC 需要 `-mwindows`）
 
-> 编译时只需 `-mwindows`，不再需要 `-lgdi32 -lwinmm`。
+> 编译时只需 `-mwindows`，不再需要 `-lgdi32 -lwinmm -lgdiplus -lole32`。
 
 ---
 
@@ -178,6 +184,7 @@ COLOR_GET_B(c)            // 提取 Blue 分量
 | `SPRITE_FLIP_H` | 1 | 水平翻转 |
 | `SPRITE_FLIP_V` | 2 | 垂直翻转 |
 | `SPRITE_COLORKEY` | 4 | 透明色模式 |
+| `SPRITE_ALPHA` | 8 | Alpha 混合模式 |
 | `COLORKEY_DEFAULT` | `0xFFFF00FF` | 默认透明色：品红 (255,0,255)，可用 `#ifndef` 覆盖 |
 
 ---
@@ -355,6 +362,15 @@ static bool _srandDone; // srand 是否已初始化
 - 24-bit BMP alpha 默认为 0xFF
 - 返回精灵 ID（失败返回 -1）
 
+#### `int LoadSprite(const char *filename)`
+- **通用图片加载**，通过动态加载 GDI+ 支持 **PNG、JPG、BMP、GIF、TIFF** 等格式
+- 首次调用时懒加载 `gdiplus.dll` 和 `ole32.dll`，调用 `GdiplusStartup` 初始化
+- 将文件读入内存，通过 `CreateStreamOnHGlobal` 创建 COM IStream，再由 `GdipCreateBitmapFromStream` 解码
+- 始终请求 **PixelFormat32bppARGB** 格式输出，保证像素格式统一
+- **24 位图片 Alpha 修正**：若 GDI+ 解码后所有像素的 alpha 均为 0（24 位无 alpha 通道的图片），自动将 alpha 设为 255（不透明）
+- **BMP 回退机制**：若 GDI+ 初始化失败（如系统无 gdiplus.dll），检测文件头魔数（`"BM"`），若为 BMP 文件则自动回退到 `LoadSpriteBMP`
+- 返回精灵 ID（失败返回 -1）
+
 #### `void FreeSprite(int id)`
 - 释放精灵内存，标记槽位为未使用
 
@@ -367,6 +383,9 @@ static bool _srandDone; // srand 是否已初始化
 - `SPRITE_FLIP_H`: 水平翻转
 - `SPRITE_FLIP_V`: 垂直翻转
 - `SPRITE_COLORKEY`: 与 `COLORKEY_DEFAULT`（品红 0xFFFF00FF）完全匹配的像素跳过
+- `SPRITE_ALPHA`: 启用逐像素 Alpha 混合（alpha=0 跳过，alpha=255 直接覆盖，0<alpha<255 按比例混合）
+- 标志可组合使用，如 `SPRITE_FLIP_H | SPRITE_ALPHA`
+- **性能优化**：绘制前预裁剪计算有效像素范围，内层循环无边界检查；按模式三路展开（不透明/ColorKey/Alpha），避免逐像素 flag 判断
 
 #### `void DrawSpriteRegion(int id, int x, int y, int sx, int sy, int sw, int sh)`
 - 绘制精灵的子区域（sprite sheet 切图）
@@ -476,6 +495,9 @@ static bool _srandDone; // srand 是否已初始化
 | `void _DrawHLine(int x1, int x2, int y, uint32_t c)` | 带裁剪的水平线（FillCircle/FillTriangle 内部用） |
 | `void _UpdateTitleFps()` | 当 `_showFps=true` 时更新标题栏 FPS 显示（在 FPS 统计更新时调用） |
 | `int _AllocSpriteSlot()` | 在 `_sprites` 向量中找空闲槽位或追加新槽位 |
+| `static int _gamelib_gdiplus_init()` | 懒加载 `gdiplus.dll` 和 `ole32.dll`，解析函数地址并调用 `GdiplusStartup`（仅首次执行） |
+| `static void _gamelib_com_release(void *obj)` | 通过 COM vtable 手动调用 `IUnknown::Release`（无需 ObjBase.h） |
+| `static uint32_t* _gamelib_gdiplus_load(...)` | 从内存数据通过 GDI+ 解码图片，返回 32bppARGB 像素数组 |
 
 ---
 
@@ -522,23 +544,20 @@ int main() {
 
 ### 已知限制
 
-1. **无 Alpha 混合** — DrawSprite 仅判断 alpha > 0 来决定是否绘制，没有真正的 alpha blending
-2. **C-style 强制转换** — cppcheck 会报 style 警告，但对目标用户群体来说可以接受
-3. **PlayBeep 是阻塞的** — 会暂停游戏循环
-4. **单窗口** — 窗口类名固定为 "GameLibWindowClass"，同时只能有一个 GameLib 实例正常工作
-5. **仅支持 BMP 加载** — 不支持 PNG/JPG 等格式
-6. **WaitFrame 精度** — 依赖 `Sleep`，在低 fps 目标下足够，高精度场景可能不够
-7. **MCI 音乐单通道** — 同时只能播放一首背景音乐（固定别名 `gamelib_music`）
+1. **C-style 强制转换** — cppcheck 会报 style 警告，但对目标用户群体来说可以接受
+2. **PlayBeep 是阻塞的** — 会暂停游戏循环
+3. **单窗口** — 窗口类名固定为 "GameLibWindowClass"，同时只能有一个 GameLib 实例正常工作
+4. **WaitFrame 精度** — 依赖 `Sleep`，在低 fps 目标下足够，高精度场景可能不够
+5. **MCI 音乐单通道** — 同时只能播放一首背景音乐（固定别名 `gamelib_music`）
 
 ### 未来改进方向
 
-1. **Alpha 混合** — 为 DrawSprite 系列方法添加真正的 per-pixel alpha blending
-2. **精灵缩放/旋转** — 添加 `DrawSpriteScaled` / `DrawSpriteRotated`
-3. **更多图元** — 椭圆、圆角矩形、贝塞尔曲线等
-4. **简单动画系统** — 帧动画支持（sprite sheet 自动切帧）
-5. **音频增强** — 多通道音效、音量控制
-6. **文字增强** — 支持更多字体大小、中文显示
-7. **示例游戏 Demo** — 编写打砖块、太空射击等示例
+1. **精灵缩放/旋转** — 添加 `DrawSpriteScaled` / `DrawSpriteRotated`
+2. **更多图元** — 椭圆、圆角矩形、贝塞尔曲线等
+3. **简单动画系统** — 帧动画支持（sprite sheet 自动切帧）
+4. **音频增强** — 多通道音效、音量控制
+5. **文字增强** — 支持更多字体大小、中文显示
+6. **示例游戏 Demo** — 编写打砖块、太空射击等示例
 
 ---
 
@@ -559,3 +578,14 @@ int main() {
 | `COLORKEY_DEFAULT` 用 `#ifndef` 保护 | 允许用户在 include 前自定义覆盖 |
 | PlayMusic 用 MCI 而非 PlaySound | MCI 支持 MP3，且与 PlaySound 独立通道，可同时播放音乐和音效 |
 | MCI 先尝试 mpegvideo 再自动检测 | mpegvideo 是 MP3 最可靠的类型，回退保证兼容其他格式 |
+| GDI+ 通过 LoadLibrary 动态加载 | 避免编译时链接 `-lgdiplus -lole32`，保持只需 `-mwindows` |
+| GDI+ 懒初始化（首次 `LoadSprite` 时） | 不使用图片加载功能时零开销，不影响启动速度 |
+| COM Release 通过 vtable 手动调用 | 避免 `#include <ObjBase.h>`，减少头文件依赖 |
+| GDI+ 所有类型用 `void*` 不透明指针 | 无需引入 GDI+ 头文件，仅通过 Flat API 函数指针操作 |
+| LockBits 始终请求 32bppARGB | 统一像素格式，无论源图片是 24-bit/32-bit/调色板格式 |
+| `LoadSprite` GDI+ 失败时 BMP 回退 | 兼容无 GDI+ 的极端环境，BMP 仍可通过 `LoadSpriteBMP` 加载 |
+| GDI+ 加载后检测全零 alpha 并修正为 255 | 24 位图片（BMP/JPG 等无 alpha 通道）经 GDI+ 转 32bppARGB 后 alpha 可能为 0，导致绘制时被当作透明跳过 |
+| Alpha 混合用 `SPRITE_ALPHA` 标志显式启用 | 默认不混合（性能优先），需要混合时通过 `DrawSpriteEx` 传入标志，避免不必要的每像素计算 |
+| `DrawSpriteEx` 预裁剪 + 三路循环展开 | 预裁剪消除内层逐像素边界检查；按不透明/ColorKey/Alpha 三种模式展开独立循环，避免逐像素 flag 分支 |
+| mmsystem 类型和常量自行声明 | 不再 `#include <mmsystem.h>`，减少头文件依赖，避免与 `WIN32_LEAN_AND_MEAN` 冲突 |
+| `unsigned int` 替代 `UINT32` | GCC 4.9.2 的 MinGW 头文件可能未定义 `UINT32` |

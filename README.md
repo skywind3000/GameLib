@@ -4,7 +4,8 @@
 
 一个给孩子们写的 C++ 游戏库 —— 只有一个头文件，无需安装任何东西，包含即可开始做游戏。
 
----
+
+
 
 ## 它长什么样？
 
@@ -42,7 +43,8 @@ g++ -o game.exe main.cpp -mwindows
 
 没了。不需要配置项目，不需要下载 SDK，不需要链接一堆库。
 
----
+
+
 
 ## 为什么做这个？
 
@@ -56,7 +58,8 @@ g++ -o game.exe main.cpp -mwindows
 
 它专门为 **Dev C++**（很多学校编程课在用的 IDE）设计，兼容其自带的 GCC 4.9.2 编译器。当然，任何支持 C++11 的 Windows 编译器都可以用。
 
----
+
+
 
 ## 特性一览
 
@@ -76,8 +79,9 @@ g++ -o game.exe main.cpp -mwindows
 
 ### 精灵系统
 
-- 从 BMP 文件加载精灵（24-bit / 32-bit）
-- 翻转、Color Key 透明、区域裁剪绘制
+- 通过 GDI+ 加载 PNG、JPG、BMP、GIF 等格式（也可直接加载 BMP）
+- 24 位图片自动补全 alpha 通道（设为不透明）
+- 翻转、Color Key 透明、Alpha 混合、区域裁剪绘制
 - 用整数 ID 管理，不需要理解指针和对象生命周期
 
 ### 键盘和鼠标
@@ -101,7 +105,8 @@ g++ -o game.exe main.cpp -mwindows
 - `DrawGrid` / `FillCell` — 网格绘制（适合俄罗斯方块、棋盘类游戏）
 - `GetDeltaTime` / `GetFPS` — 帧时间和帧率
 
----
+
+
 
 ## 快速上手
 
@@ -146,7 +151,8 @@ int main()
 g++ -o game.exe main.cpp -mwindows
 ```
 
----
+
+
 
 ## 更多示例
 
@@ -273,7 +279,8 @@ int main()
 
 更多示例见 `examples/` 目录。
 
----
+
+
 
 ## 示例程序
 
@@ -288,7 +295,14 @@ g++ -o demo.exe examples/01_hello.cpp -mwindows
 ### 入门基础
 
 | 示例 | 说明 | 学到什么 |
-|------|------|----------|
+|
+
+|
+
+|
+
+
+-|
 | `01_hello.cpp` | Hello World | 游戏循环、窗口创建、文字绘制 |
 | `02_moving_box.cpp` | 键盘控制方块移动 | 键盘输入、实时更新 |
 | `03_shapes.cpp` | 所有图形绘制展示 | 线、矩形、圆、三角形的描边与填充 |
@@ -297,7 +311,14 @@ g++ -o demo.exe examples/01_hello.cpp -mwindows
 ### 交互进阶
 
 | 示例 | 说明 | 学到什么 |
-|------|------|----------|
+|
+
+|
+
+|
+
+
+-|
 | `05_paint.cpp` | 简易画板 | 鼠标输入、SetPixel、按键切换颜色 |
 | `06_catch_fruit.cpp` | 接水果小游戏 | Random、碰撞检测、计分 |
 | `07_shooting_stars.cpp` | 简易射击 | 数组管理多对象、子弹发射、碰撞销毁 |
@@ -305,7 +326,14 @@ g++ -o demo.exe examples/01_hello.cpp -mwindows
 ### 精灵与声音
 
 | 示例 | 说明 | 学到什么 |
-|------|------|----------|
+|
+
+|
+
+|
+
+
+-|
 | `08_sprite_demo.cpp` | 精灵加载与绘制 | LoadSpriteBMP、翻转、Region 裁剪 |
 | `09_sprite_animation.cpp` | 精灵帧动画 | DrawSpriteRegion 实现 sprite sheet 动画 |
 | `10_sound_demo.cpp` | 声音播放演示 | PlayWAV 音效、PlayMusic 背景音乐 |
@@ -313,19 +341,31 @@ g++ -o demo.exe examples/01_hello.cpp -mwindows
 ### 完整小游戏
 
 | 示例 | 说明 | 学到什么 |
-|------|------|----------|
+|
+
+|
+
+|
+
+
+-|
 | `11_snake.cpp` | 贪吃蛇 | DrawGrid/FillCell、游戏状态机 |
 | `12_breakout.cpp` | 打砖块 | 碰撞检测深度运用、多对象管理 |
 | `13_space_shooter.cpp` | 太空射击 | 综合：精灵 + 音效 + 碰撞 + 滚动背景 + 计分 |
 
----
+
+
 
 ## API 速查
 
 ### 窗口
 
 | 函数 | 说明 |
-|------|------|
+|
+
+|
+
+|
 | `Open(w, h, title, center)` | 创建窗口，center=true 时居中 |
 | `IsClosed()` | 窗口是否关闭 |
 | `Update()` | 刷新画面、处理输入 |
@@ -339,7 +379,11 @@ g++ -o demo.exe examples/01_hello.cpp -mwindows
 ### 绘图
 
 | 函数 | 说明 |
-|------|------|
+|
+
+|
+
+|
 | `Clear(color)` | 清屏 |
 | `SetPixel(x, y, color)` | 画点 |
 | `GetPixel(x, y)` | 读点 |
@@ -354,7 +398,11 @@ g++ -o demo.exe examples/01_hello.cpp -mwindows
 ### 文字
 
 | 函数 | 说明 |
-|------|------|
+|
+
+|
+
+|
 | `DrawText(x, y, text, color)` | 绘制文字 |
 | `DrawNumber(x, y, number, color)` | 绘制整数 |
 | `DrawTextScale(x, y, text, color, scale)` | 放大文字 |
@@ -363,22 +411,31 @@ g++ -o demo.exe examples/01_hello.cpp -mwindows
 ### 精灵
 
 | 函数 | 说明 |
-|------|------|
+|
+
+|
+
+|
 | `CreateSprite(w, h)` | 创建空白精灵，返回 ID |
+| `LoadSprite(filename)` | 加载图片精灵（PNG/JPG/BMP/GIF） |
 | `LoadSpriteBMP(filename)` | 从 BMP 加载精灵 |
 | `FreeSprite(id)` | 释放精灵 |
 | `DrawSprite(id, x, y)` | 绘制精灵 |
-| `DrawSpriteEx(id, x, y, flags)` | 带翻转/透明绘制 |
+| `DrawSpriteEx(id, x, y, flags)` | 带翻转/透明/Alpha混合绘制 |
 | `DrawSpriteRegion(id, x, y, sx, sy, sw, sh)` | 绘制精灵子区域 |
 | `SetSpritePixel(id, x, y, color)` | 修改精灵像素 |
 | `GetSpritePixel(id, x, y)` | 读取精灵像素 |
 
-精灵标志：`SPRITE_FLIP_H`（水平翻转）、`SPRITE_FLIP_V`（垂直翻转）、`SPRITE_COLORKEY`（品红色透明）
+精灵标志：`SPRITE_FLIP_H`（水平翻转）、`SPRITE_FLIP_V`（垂直翻转）、`SPRITE_COLORKEY`（品红色透明）、`SPRITE_ALPHA`（Alpha 混合）
 
 ### 输入
 
 | 函数 | 说明 |
-|------|------|
+|
+
+|
+
+|
 | `IsKeyDown(key)` | 按键是否按住 |
 | `IsKeyPressed(key)` | 按键是否刚按下（单次触发） |
 | `GetMouseX()` / `GetMouseY()` | 鼠标位置 |
@@ -387,7 +444,11 @@ g++ -o demo.exe examples/01_hello.cpp -mwindows
 ### 声音
 
 | 函数 | 说明 |
-|------|------|
+|
+
+|
+
+|
 | `PlayWAV(filename, loop)` | 播放音效 |
 | `StopWAV()` | 停止音效 |
 | `PlayMusic(filename, loop)` | 播放背景音乐（MP3/MIDI） |
@@ -397,7 +458,11 @@ g++ -o demo.exe examples/01_hello.cpp -mwindows
 ### 工具
 
 | 函数 | 说明 |
-|------|------|
+|
+
+|
+
+|
 | `Random(min, max)` | 随机数 |
 | `RectOverlap(...)` | 矩形碰撞检测 |
 | `CircleOverlap(...)` | 圆形碰撞检测 |
@@ -418,7 +483,8 @@ COLOR_BROWN    COLOR_GOLD      COLOR_TRANSPARENT
 
 自定义颜色：`COLOR_RGB(r, g, b)` 或 `COLOR_ARGB(a, r, g, b)`
 
----
+
+
 
 ## 适合做什么？
 
@@ -432,7 +498,8 @@ COLOR_BROWN    COLOR_GOLD      COLOR_TRANSPARENT
 - 画板程序 (Paint)
 - 任何你能想到的 2D 小游戏
 
----
+
+
 
 ## 技术细节
 
@@ -441,7 +508,8 @@ COLOR_BROWN    COLOR_GOLD      COLOR_TRANSPARENT
 - **精确窗口尺寸**：`Open()` 保证客户区严格等于请求的宽高（含高 DPI 二次校正）
 - **stb 风格单头文件**：默认 include 即启用实现；多文件项目可用 `GAMELIB_NO_IMPLEMENTATION` 控制
 
----
+
+
 
 ## 环境要求
 
@@ -449,7 +517,8 @@ COLOR_BROWN    COLOR_GOLD      COLOR_TRANSPARENT
 - 任何支持 C++11 的编译器（GCC 4.9+、MSVC 2015+、Clang）
 - 推荐 IDE：Dev C++、Visual Studio、Code::Blocks
 
----
+
+
 
 ## 协议
 
