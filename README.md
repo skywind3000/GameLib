@@ -1,10 +1,10 @@
 # GameLib.h
 
-**Single-header C++ game library for beginners — no SDL, no setup, just include and play.**
+给 C++ 初学者的游戏开发库，只有一个头文件，无需安装任何东西，写句 `include` 就能开始做游戏。
 
-一个给孩子们写的 C++ 游戏库 —— 只有一个头文件，无需安装任何东西，包含即可开始做游戏。
+现在很多 C++ 初学者学了半天发现只能在黑窗口里输出点文字，容易产生挫败感，觉得离实际的程序太远，而现有的很多库类似 SDL 这种，需要关注的细节过多，安装也有门槛。
 
-
+所以我设计了这个 `GameLib.h` 头文件库，让他用起来就像在 C++ 里使用 PyGame 一样简单，屏蔽大量中间环节，这个库不但无依赖，连编译参数都不需要额外添加，拿起来就用，让初学者重新找到学习 C++ 的快乐。
 
 
 ## 它长什么样？
@@ -27,7 +27,7 @@ int main()
 
         game.Clear(COLOR_BLACK);
         game.FillCircle(x, y, 15, COLOR_CYAN);
-        game.DrawText(10, 10, "WASD to move!", COLOR_WHITE);
+        game.DrawText(10, 10, "Up/Down/Left/Right to move!", COLOR_WHITE);
         game.Update();
         game.WaitFrame(60);
     }
@@ -48,9 +48,9 @@ g++ -o game.exe main.cpp -mwindows
 
 ## 为什么做这个？
 
-市面上的游戏库（SDL、SFML、raylib）都很好，但对于刚接触 C++ 的孩子来说：
+市面上的游戏库（SDL、SFML、raylib）都很好，但对于刚接触 C++ 的初学者来说：
 
-- SDL 要配置头文件路径、链接十几个 dll
+- SDL 要配置头文件路径、链接十几个 dll，使用复杂
 - SFML 要用 CMake
 - raylib 相对简单，但仍需要编译或下载预编译包
 
