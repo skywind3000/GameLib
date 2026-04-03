@@ -67,7 +67,7 @@ g++ -o game.exe main.cpp -mwindows
 
 - 单个头文件 `GameLib.h`，拷贝即用
 - 不依赖 SDL / SFML / DirectX / OpenGL
-- 只用 Windows 自带的 GDI，编译只需 `-mwindows`（gdi32/winmm 自动动态加载）
+- 编译参数都不需要加（全动态加载），可选择性添加 `-mwindows` 参数
 - 兼容 Dev C++ 自带的 GCC 4.9.2
 
 ### 开箱即用的绘图
@@ -80,7 +80,7 @@ g++ -o game.exe main.cpp -mwindows
 ### 精灵系统
 
 - 加载 PNG、JPG、BMP、GIF 等格式
-- 支持 8-bit 调色板、24-bit、32-bit BMP（自动转换为 32 位 ARGB）
+- 支持 8-bit 调色板、24-bit、32-bit 图片（自动转换为 32 位 ARGB）
 - 24 位图片自动补全 alpha 通道（设为不透明）
 - 翻转、Color Key 透明、Alpha 混合、区域裁剪绘制
 - 用整数 ID 管理，不需要理解指针和对象生命周期
