@@ -55,6 +55,14 @@
 #endif
 #endif
 
+// Version Info
+#define GAMELIB_VERSION_INFO   0x10000
+
+#define GAMELIB_VERSION_MAJOR  ((GAMELIB_VERSION_INFO >> 16) & 0xffff)
+#define GAMELIB_VERSION_MINOR  ((GAMELIB_VERSION_INFO >> 8) & 0xff)
+#define GAMELIB_VERSION_PATCH  ((GAMELIB_VERSION_INFO >> 0) & 0xff)
+
+
 //---------------------------------------------------------------------
 // System header files
 //---------------------------------------------------------------------

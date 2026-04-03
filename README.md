@@ -40,11 +40,18 @@ int main()
 编译：
 
 ```bash
-g++ -o game.exe main.cpp -mwindows
+g++ main.cpp -o game.exe
 ```
 
 没了。不需要配置项目，不需要下载 SDK，不需要链接一堆库。
 
+编译参数可以选择性加一个 `-mwindows` （也可以不加）：
+
+```bash
+g++ main.cpp -o game.exe -mwindows
+```
+
+这样启动就没有黑色终端窗口，和标准 Windows 程序一样，这个在 Dev-Cpp 里新建 Windows Application 项目时也会自动帮你加上。
 
 
 
