@@ -46,3 +46,8 @@
 /.ferrite/*
 /scratch/*
 /nul
+/assets/*.py
+/assets/**/*.py
+/assets/temp/*
+/assets/workshop/*
+
