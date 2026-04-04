@@ -498,7 +498,15 @@ COLOR_BROWN    COLOR_GOLD      COLOR_TRANSPARENT
 - 任何支持 C++11 的编译器（GCC 4.9+、MSVC 2015+、Clang）
 - 推荐 IDE：Dev C++、Visual Studio、Code::Blocks
 
+## 网络资源
 
+想做游戏找不到资源？可以到下面几个地方转转：
+
+- 老游戏精灵资源：https://www.spriters-resource.com
+- 像素风格资源：http://www.charas-project.net/resources.php?lang=en
+- 另一个像素资源：https://craftpix.net/tags/pixel-art-game-assets-download
+
+还可以去 PyGame 的 [Resources](https://www.pygame.org/wiki/resources) 页面，里面有各种免费的图片，音频，字体资源。
 
 
 ## 协议
