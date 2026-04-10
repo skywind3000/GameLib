@@ -30,4 +30,4 @@
 
 ## Guidelines
 
-- 如果要用 GameLib.h 实现游戏，请先完整阅读 GameLib.h 这个代码，以及 docs 目录下面的  Manual.md （GameLib.h 的接口介绍）和 GameLib.md （里面包含 GameLib.h 的技术规格）两个文件，确保完全理解 GameLib.h 的设计逻辑和用法；
+- 如果要用 GameLib.h 实现游戏，请先完整阅读 GameLib.h 这个代码，以及 docs 目录下面的  Manual.md （GameLib.h 的接口介绍）和 GameLib.md （里面包含 GameLib.h 的设计思路）两个文件，确保完全理解 GameLib.h 的设计逻辑和用法；
