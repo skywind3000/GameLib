@@ -321,6 +321,7 @@ public:
     void DrawNumber(int x, int y, int number, uint32_t color);
     void DrawTextScale(int x, int y, const char *text, uint32_t color, int scale);
     void DrawPrintf(int x, int y, uint32_t color, const char *fmt, ...);
+    void DrawPrintfScale(int x, int y, uint32_t color, int scale, const char *fmt, ...);
 
     // -------- GDI Text Rendering (system fonts, Chinese support) --------
     void DrawTextGDI(int x, int y, const char *text, uint32_t color, const char *fontName, int fontSize);
@@ -1657,6 +1658,17 @@ void GameLib::DrawPrintf(int x, int y, uint32_t color, const char *fmt, ...)
     va_end(args);
     buf[sizeof(buf) - 1] = '\0';
     DrawText(x, y, buf, color);
+}
+
+void GameLib::DrawPrintfScale(int x, int y, uint32_t color, int scale, const char *fmt, ...)
+{
+    char buf[1024];
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(buf, sizeof(buf), fmt, args);
+    va_end(args);
+    buf[sizeof(buf) - 1] = '\0';
+    DrawTextScale(x, y, buf, color, scale);
 }
 
 
