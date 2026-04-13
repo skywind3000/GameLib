@@ -91,7 +91,7 @@ g++ main.cpp -o game.exe -mwindows
 - 加载 PNG、JPG、BMP、GIF 等格式
 - 支持 8-bit 调色板、24-bit、32-bit 图片（自动转换为 32 位 ARGB）
 - 24 位图片自动补全 alpha 通道（设为不透明）
-- 翻转、Color Key 透明、Alpha 混合、区域裁剪绘制
+- 翻转、Color Key 透明、Alpha 混合、区域裁剪、缩放、按帧绘制
 - 用整数 ID 管理，不需要理解指针和对象生命周期
 
 ### 键盘和鼠标
@@ -406,10 +406,16 @@ g++ -o demo.exe examples/01_hello.cpp -mwindows
 | `DrawSprite(id, x, y)` | 绘制精灵 |
 | `DrawSpriteEx(id, x, y, flags)` | 带翻转/透明/Alpha混合绘制 |
 | `DrawSpriteRegion(id, x, y, sx, sy, sw, sh)` | 绘制精灵子区域 |
+| `DrawSpriteRegionEx(...)` | 带 flags 绘制精灵子区域 |
+| `DrawSpriteScaled(id, x, y, w, h, flags)` | 按目标尺寸缩放绘制精灵 |
+| `DrawSpriteFrame(...)` | 按帧号绘制 sprite sheet 中的帧 |
+| `DrawSpriteFrameScaled(...)` | 按帧号缩放绘制 sprite sheet 中的帧 |
 | `SetSpritePixel(id, x, y, color)` | 修改精灵像素 |
 | `GetSpritePixel(id, x, y)` | 读取精灵像素 |
+| `SetSpriteColorKey(id, color)` | 设置该精灵的 Color Key |
+| `GetSpriteColorKey(id)` | 读取该精灵的 Color Key |
 
-精灵标志：`SPRITE_FLIP_H`（水平翻转）、`SPRITE_FLIP_V`（垂直翻转）、`SPRITE_COLORKEY`（品红色透明）、`SPRITE_ALPHA`（Alpha 混合）
+精灵标志：`SPRITE_FLIP_H`（水平翻转）、`SPRITE_FLIP_V`（垂直翻转）、`SPRITE_COLORKEY`（按该精灵当前 Color Key 透明，默认品红色）、`SPRITE_ALPHA`（Alpha 混合）
 
 ### 输入
 

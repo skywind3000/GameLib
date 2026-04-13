@@ -342,10 +342,16 @@ public:
     void DrawSprite(int id, int x, int y);
     void DrawSpriteEx(int id, int x, int y, int flags);
     void DrawSpriteRegion(int id, int x, int y, int sx, int sy, int sw, int sh);
+    void DrawSpriteRegionEx(int id, int x, int y, int sx, int sy, int sw, int sh, int flags = 0);
+    void DrawSpriteScaled(int id, int x, int y, int w, int h, int flags = 0);
+    void DrawSpriteFrame(int id, int x, int y, int frameW, int frameH, int frameIndex, int flags = 0);
+    void DrawSpriteFrameScaled(int id, int x, int y, int frameW, int frameH, int frameIndex, int w, int h, int flags = 0);
     void SetSpritePixel(int id, int x, int y, uint32_t color);
     uint32_t GetSpritePixel(int id, int x, int y) const;
     int GetSpriteWidth(int id) const;
     int GetSpriteHeight(int id) const;
+    void SetSpriteColorKey(int id, uint32_t color);
+    uint32_t GetSpriteColorKey(int id) const;
 
     // -------- Input --------
     bool IsKeyDown(int key) const;
@@ -401,6 +407,9 @@ private:
 
     // internal sprite management
     int _AllocSpriteSlot();
+    void _DrawSpriteAreaFast(int id, int x, int y, int sx, int sy, int sw, int sh, int flags);
+    void _DrawSpriteAreaScaled(int id, int x, int y, int sx, int sy, int sw, int sh,
+                               int dw, int dh, int flags);
 
     // internal tilemap management
     int _AllocTilemapSlot();
@@ -445,7 +454,7 @@ private:
     UINT   _timerId;        // multimedia timer ID (from timeSetEvent)
 
     // sprite storage
-    struct GameSprite { int width, height; uint32_t *pixels; bool used; };
+    struct GameSprite { int width, height; uint32_t *pixels; uint32_t colorKey; bool used; };
     std::vector<GameSprite> _sprites;
 
     // tilemap storage
@@ -1919,12 +1928,16 @@ int GameLib::GetTextHeightFont(const char *text, int fontSize)
 int GameLib::_AllocSpriteSlot()
 {
     for (size_t i = 0; i < _sprites.size(); i++) {
-        if (!_sprites[i].used) return (int)i;
+        if (!_sprites[i].used) {
+            _sprites[i].colorKey = COLORKEY_DEFAULT;
+            return (int)i;
+        }
     }
     GameSprite spr;
     spr.width = 0;
     spr.height = 0;
     spr.pixels = NULL;
+    spr.colorKey = COLORKEY_DEFAULT;
     spr.used = false;
     _sprites.push_back(spr);
     return (int)(_sprites.size() - 1);
@@ -2088,7 +2101,198 @@ void GameLib::FreeSprite(int id)
     }
     _sprites[id].width = 0;
     _sprites[id].height = 0;
+    _sprites[id].colorKey = COLORKEY_DEFAULT;
     _sprites[id].used = false;
+}
+
+void GameLib::_DrawSpriteAreaFast(int id, int x, int y, int sx, int sy, int sw, int sh, int flags)
+{
+    if (id < 0 || id >= (int)_sprites.size()) return;
+    if (!_sprites[id].used) return;
+    if (sw <= 0 || sh <= 0) return;
+
+    GameSprite &spr = _sprites[id];
+    bool flipH = (flags & SPRITE_FLIP_H) != 0;
+    bool flipV = (flags & SPRITE_FLIP_V) != 0;
+    bool useAlpha = (flags & SPRITE_ALPHA) != 0;
+    bool useColorKey = (flags & SPRITE_COLORKEY) != 0;
+    uint32_t colorKey = spr.colorKey;
+    bool canMemcpyRows = !useAlpha && !useColorKey && !flipH && !flipV;
+
+    int localX0 = 0, localX1 = sw;
+    int localY0 = 0, localY1 = sh;
+
+    if (x < 0) localX0 = -x;
+    if (y < 0) localY0 = -y;
+    if (x + sw > _width) localX1 = _width - x;
+    if (y + sh > _height) localY1 = _height - y;
+
+    if (!flipH) {
+        if (sx < 0) localX0 = (localX0 > -sx) ? localX0 : -sx;
+        if (sx + sw > spr.width) {
+            int bound = spr.width - sx;
+            localX1 = (localX1 < bound) ? localX1 : bound;
+        }
+    } else {
+        if (sx < 0) {
+            int bound = sx + sw;
+            localX1 = (localX1 < bound) ? localX1 : bound;
+        }
+        if (sx + sw > spr.width) {
+            int bound = sx + sw - spr.width;
+            localX0 = (localX0 > bound) ? localX0 : bound;
+        }
+    }
+
+    if (!flipV) {
+        if (sy < 0) localY0 = (localY0 > -sy) ? localY0 : -sy;
+        if (sy + sh > spr.height) {
+            int bound = spr.height - sy;
+            localY1 = (localY1 < bound) ? localY1 : bound;
+        }
+    } else {
+        if (sy < 0) {
+            int bound = sy + sh;
+            localY1 = (localY1 < bound) ? localY1 : bound;
+        }
+        if (sy + sh > spr.height) {
+            int bound = sy + sh - spr.height;
+            localY0 = (localY0 > bound) ? localY0 : bound;
+        }
+    }
+
+    if (localX0 >= localX1 || localY0 >= localY1) return;
+
+    int srcXStep = flipH ? -1 : 1;
+
+    if (canMemcpyRows) {
+        int copyPixels = localX1 - localX0;
+        int dstX0 = x + localX0;
+        for (int localY = localY0; localY < localY1; localY++) {
+            int srcY = flipV ? (sy + sh - 1 - localY) : (sy + localY);
+            const uint32_t *srcRow = spr.pixels + srcY * spr.width;
+            uint32_t *dstRow = _framebuffer + (y + localY) * _width;
+            memcpy(dstRow + dstX0, srcRow + sx + localX0, (size_t)copyPixels * sizeof(uint32_t));
+        }
+        return;
+    }
+
+    if (useAlpha) {
+        for (int localY = localY0; localY < localY1; localY++) {
+            int srcY = flipV ? (sy + sh - 1 - localY) : (sy + localY);
+            const uint32_t *srcRow = spr.pixels + srcY * spr.width;
+            uint32_t *dstRow = _framebuffer + (y + localY) * _width;
+            int srcX = flipH ? (sx + sw - 1 - localX0) : (sx + localX0);
+
+            for (int localX = localX0; localX < localX1; localX++, srcX += srcXStep) {
+                uint32_t c = srcRow[srcX];
+                if (useColorKey && c == colorKey) continue;
+
+                uint32_t sa = COLOR_GET_A(c);
+                if (sa == 0) continue;
+
+                int dx = x + localX;
+                if (sa == 255) {
+                    dstRow[dx] = c;
+                } else {
+                    uint32_t dc = dstRow[dx];
+                    uint32_t ia = 255 - sa;
+                    uint32_t or_ = (sa * COLOR_GET_R(c) + ia * COLOR_GET_R(dc)) / 255;
+                    uint32_t og = (sa * COLOR_GET_G(c) + ia * COLOR_GET_G(dc)) / 255;
+                    uint32_t ob = (sa * COLOR_GET_B(c) + ia * COLOR_GET_B(dc)) / 255;
+                    dstRow[dx] = COLOR_ARGB(255, or_, og, ob);
+                }
+            }
+        }
+    } else if (useColorKey) {
+        for (int localY = localY0; localY < localY1; localY++) {
+            int srcY = flipV ? (sy + sh - 1 - localY) : (sy + localY);
+            const uint32_t *srcRow = spr.pixels + srcY * spr.width;
+            uint32_t *dstRow = _framebuffer + (y + localY) * _width;
+            int srcX = flipH ? (sx + sw - 1 - localX0) : (sx + localX0);
+
+            for (int localX = localX0; localX < localX1; localX++, srcX += srcXStep) {
+                uint32_t c = srcRow[srcX];
+                if (c != colorKey)
+                    dstRow[x + localX] = c;
+            }
+        }
+    } else {
+        for (int localY = localY0; localY < localY1; localY++) {
+            int srcY = flipV ? (sy + sh - 1 - localY) : (sy + localY);
+            const uint32_t *srcRow = spr.pixels + srcY * spr.width;
+            uint32_t *dstRow = _framebuffer + (y + localY) * _width;
+            int srcX = flipH ? (sx + sw - 1 - localX0) : (sx + localX0);
+
+            for (int localX = localX0; localX < localX1; localX++, srcX += srcXStep) {
+                uint32_t c = srcRow[srcX];
+                if (COLOR_GET_A(c) > 0)
+                    dstRow[x + localX] = c;
+            }
+        }
+    }
+}
+
+void GameLib::_DrawSpriteAreaScaled(int id, int x, int y, int sx, int sy, int sw, int sh,
+                                    int dw, int dh, int flags)
+{
+    if (id < 0 || id >= (int)_sprites.size()) return;
+    if (!_sprites[id].used) return;
+    if (sw <= 0 || sh <= 0 || dw <= 0 || dh <= 0) return;
+
+    GameSprite &spr = _sprites[id];
+    int dx0 = x;
+    int dy0 = y;
+    int dx1 = x + dw;
+    int dy1 = y + dh;
+
+    if (dx0 < 0) dx0 = 0;
+    if (dy0 < 0) dy0 = 0;
+    if (dx1 > _width) dx1 = _width;
+    if (dy1 > _height) dy1 = _height;
+    if (dx0 >= dx1 || dy0 >= dy1) return;
+
+    bool flipH = (flags & SPRITE_FLIP_H) != 0;
+    bool flipV = (flags & SPRITE_FLIP_V) != 0;
+    bool useAlpha = (flags & SPRITE_ALPHA) != 0;
+    bool useColorKey = (flags & SPRITE_COLORKEY) != 0;
+    uint32_t colorKey = spr.colorKey;
+
+    for (int dy = dy0; dy < dy1; dy++) {
+        int localY = dy - y;
+        int srcY = (int)(((int64_t)localY * sh) / dh);
+        if (flipV) srcY = sh - 1 - srcY;
+        srcY += sy;
+        if (srcY < 0 || srcY >= spr.height) continue;
+
+        const uint32_t *srcRow = spr.pixels + srcY * spr.width;
+        uint32_t *dstRow = _framebuffer + dy * _width;
+
+        for (int dx = dx0; dx < dx1; dx++) {
+            int localX = dx - x;
+            int srcX = (int)(((int64_t)localX * sw) / dw);
+            if (flipH) srcX = sw - 1 - srcX;
+            srcX += sx;
+            if (srcX < 0 || srcX >= spr.width) continue;
+
+            uint32_t c = srcRow[srcX];
+            if (useColorKey && c == colorKey) continue;
+
+            uint32_t sa = COLOR_GET_A(c);
+            if (sa == 0) continue;
+
+            if (!useAlpha || sa == 255) {
+                dstRow[dx] = c;
+            } else {
+                uint32_t dc = dstRow[dx];
+                uint32_t ia = 255 - sa;
+                uint32_t or_ = (sa * COLOR_GET_R(c) + ia * COLOR_GET_R(dc)) / 255;
+                uint32_t og = (sa * COLOR_GET_G(c) + ia * COLOR_GET_G(dc)) / 255;
+                uint32_t ob = (sa * COLOR_GET_B(c) + ia * COLOR_GET_B(dc)) / 255;
+                dstRow[dx] = COLOR_ARGB(255, or_, og, ob);
+            }
+        }
+    }
 }
 
 void GameLib::DrawSprite(int id, int x, int y)
@@ -2100,94 +2304,69 @@ void GameLib::DrawSpriteEx(int id, int x, int y, int flags)
 {
     if (id < 0 || id >= (int)_sprites.size()) return;
     if (!_sprites[id].used) return;
-    GameSprite &spr = _sprites[id];
-    bool flipH = (flags & SPRITE_FLIP_H) != 0;
-    bool flipV = (flags & SPRITE_FLIP_V) != 0;
-
-    // Pre-clip to avoid per-pixel boundary check
-    int sx0 = 0, sx1 = spr.width;
-    int sy0 = 0, sy1 = spr.height;
-    if (x < 0) sx0 = -x;
-    if (y < 0) sy0 = -y;
-    if (x + sx1 > _width)  sx1 = _width - x;
-    if (y + sy1 > _height) sy1 = _height - y;
-    if (sx0 >= sx1 || sy0 >= sy1) return;
-
-    if (flags & SPRITE_ALPHA) {
-        // ---- Alpha blending path ----
-        bool colorKey = (flags & SPRITE_COLORKEY) != 0;
-        for (int sy = sy0; sy < sy1; sy++) {
-            int srcY = flipV ? (spr.height - 1 - sy) : sy;
-            const uint32_t *srcRow = spr.pixels + srcY * spr.width;
-            uint32_t *dstRow = _framebuffer + (y + sy) * _width + x;
-            for (int sx = sx0; sx < sx1; sx++) {
-                int srcX = flipH ? (spr.width - 1 - sx) : sx;
-                uint32_t c = srcRow[srcX];
-                if (colorKey && c == COLORKEY_DEFAULT) continue;
-                uint32_t sa = COLOR_GET_A(c);
-                if (sa == 0) continue;
-                if (sa == 255) {
-                    dstRow[sx] = c;
-                } else {
-                    uint32_t dc = dstRow[sx];
-                    uint32_t ia = 255 - sa;
-                    uint32_t or_ = (sa * COLOR_GET_R(c) + ia * COLOR_GET_R(dc)) / 255;
-                    uint32_t og = (sa * COLOR_GET_G(c) + ia * COLOR_GET_G(dc)) / 255;
-                    uint32_t ob = (sa * COLOR_GET_B(c) + ia * COLOR_GET_B(dc)) / 255;
-                    dstRow[sx] = COLOR_ARGB(255, or_, og, ob);
-                }
-            }
-        }
-    } else if (flags & SPRITE_COLORKEY) {
-        // ---- ColorKey transparent path ----
-        for (int sy = sy0; sy < sy1; sy++) {
-            int srcY = flipV ? (spr.height - 1 - sy) : sy;
-            const uint32_t *srcRow = spr.pixels + srcY * spr.width;
-            uint32_t *dstRow = _framebuffer + (y + sy) * _width + x;
-            for (int sx = sx0; sx < sx1; sx++) {
-                int srcX = flipH ? (spr.width - 1 - sx) : sx;
-                uint32_t c = srcRow[srcX];
-                if (c != COLORKEY_DEFAULT)
-                    dstRow[sx] = c;
-            }
-        }
-    } else {
-        // ---- Opaque path (skip alpha=0) ----
-        for (int sy = sy0; sy < sy1; sy++) {
-            int srcY = flipV ? (spr.height - 1 - sy) : sy;
-            const uint32_t *srcRow = spr.pixels + srcY * spr.width;
-            uint32_t *dstRow = _framebuffer + (y + sy) * _width + x;
-            for (int sx = sx0; sx < sx1; sx++) {
-                int srcX = flipH ? (spr.width - 1 - sx) : sx;
-                uint32_t c = srcRow[srcX];
-                if (COLOR_GET_A(c) > 0)
-                    dstRow[sx] = c;
-            }
-        }
-    }
+    _DrawSpriteAreaFast(id, x, y, 0, 0, _sprites[id].width, _sprites[id].height, flags);
 }
 
 void GameLib::DrawSpriteRegion(int id, int x, int y, int sx, int sy, int sw, int sh)
 {
+    DrawSpriteRegionEx(id, x, y, sx, sy, sw, sh, 0);
+}
+
+void GameLib::DrawSpriteRegionEx(int id, int x, int y, int sx, int sy, int sw, int sh, int flags)
+{
+    _DrawSpriteAreaFast(id, x, y, sx, sy, sw, sh, flags);
+}
+
+void GameLib::DrawSpriteScaled(int id, int x, int y, int w, int h, int flags)
+{
     if (id < 0 || id >= (int)_sprites.size()) return;
     if (!_sprites[id].used) return;
+    if (w == _sprites[id].width && h == _sprites[id].height)
+        _DrawSpriteAreaFast(id, x, y, 0, 0, _sprites[id].width, _sprites[id].height, flags);
+    else
+        _DrawSpriteAreaScaled(id, x, y, 0, 0, _sprites[id].width, _sprites[id].height, w, h, flags);
+}
+
+void GameLib::DrawSpriteFrame(int id, int x, int y, int frameW, int frameH, int frameIndex, int flags)
+{
+    if (id < 0 || id >= (int)_sprites.size()) return;
+    if (!_sprites[id].used) return;
+    if (frameW <= 0 || frameH <= 0 || frameIndex < 0) return;
+
     GameSprite &spr = _sprites[id];
-    for (int j = 0; j < sh; j++) {
-        int srcY = sy + j;
-        int dy = y + j;
-        if (srcY < 0 || srcY >= spr.height) continue;
-        if (dy < 0 || dy >= _height) continue;
-        for (int i = 0; i < sw; i++) {
-            int srcX = sx + i;
-            int dx = x + i;
-            if (srcX < 0 || srcX >= spr.width) continue;
-            if (dx < 0 || dx >= _width) continue;
-            uint32_t c = spr.pixels[srcY * spr.width + srcX];
-            if (COLOR_GET_A(c) > 0) {
-                _framebuffer[dy * _width + dx] = c;
-            }
-        }
-    }
+    int cols = spr.width / frameW;
+    int rows = spr.height / frameH;
+    if (cols <= 0 || rows <= 0) return;
+
+    int totalFrames = cols * rows;
+    if (frameIndex >= totalFrames) return;
+
+    int sx = (frameIndex % cols) * frameW;
+    int sy = (frameIndex / cols) * frameH;
+    DrawSpriteRegionEx(id, x, y, sx, sy, frameW, frameH, flags);
+}
+
+void GameLib::DrawSpriteFrameScaled(int id, int x, int y, int frameW, int frameH, int frameIndex,
+                                    int w, int h, int flags)
+{
+    if (id < 0 || id >= (int)_sprites.size()) return;
+    if (!_sprites[id].used) return;
+    if (frameW <= 0 || frameH <= 0 || frameIndex < 0 || w <= 0 || h <= 0) return;
+
+    GameSprite &spr = _sprites[id];
+    int cols = spr.width / frameW;
+    int rows = spr.height / frameH;
+    if (cols <= 0 || rows <= 0) return;
+
+    int totalFrames = cols * rows;
+    if (frameIndex >= totalFrames) return;
+
+    int sx = (frameIndex % cols) * frameW;
+    int sy = (frameIndex / cols) * frameH;
+    if (w == frameW && h == frameH)
+        _DrawSpriteAreaFast(id, x, y, sx, sy, frameW, frameH, flags);
+    else
+        _DrawSpriteAreaScaled(id, x, y, sx, sy, frameW, frameH, w, h, flags);
 }
 
 void GameLib::SetSpritePixel(int id, int x, int y, uint32_t color)
@@ -2196,6 +2375,7 @@ void GameLib::SetSpritePixel(int id, int x, int y, uint32_t color)
     if (!_sprites[id].used) return;
     if (x < 0 || x >= _sprites[id].width) return;
     if (y < 0 || y >= _sprites[id].height) return;
+
     _sprites[id].pixels[y * _sprites[id].width + x] = color;
 }
 
@@ -2220,6 +2400,20 @@ int GameLib::GetSpriteHeight(int id) const
     if (id < 0 || id >= (int)_sprites.size()) return 0;
     if (!_sprites[id].used) return 0;
     return _sprites[id].height;
+}
+
+void GameLib::SetSpriteColorKey(int id, uint32_t color)
+{
+    if (id < 0 || id >= (int)_sprites.size()) return;
+    if (!_sprites[id].used) return;
+    _sprites[id].colorKey = color;
+}
+
+uint32_t GameLib::GetSpriteColorKey(int id) const
+{
+    if (id < 0 || id >= (int)_sprites.size()) return COLORKEY_DEFAULT;
+    if (!_sprites[id].used) return COLORKEY_DEFAULT;
+    return _sprites[id].colorKey;
 }
 
 
@@ -2502,6 +2696,8 @@ void GameLib::DrawTilemap(int mapId, int x, int y, int flags)
 
     bool useAlpha    = (flags & SPRITE_ALPHA) != 0;
     bool useColorKey = (flags & SPRITE_COLORKEY) != 0;
+    int tileFlags = flags & (SPRITE_ALPHA | SPRITE_COLORKEY);
+    bool canMemcpyTiles = !useAlpha && !useColorKey;
 
     for (int r = row0; r < row1; r++) {
         for (int c = col0; c < col1; c++) {
@@ -2518,72 +2714,23 @@ void GameLib::DrawTilemap(int mapId, int x, int y, int flags)
             int dstX0 = x + c * ts;
             int dstY0 = y + r * ts;
 
-            // Clip within tile
-            int ix0 = 0, iy0 = 0, ix1 = ts, iy1 = ts;
-            if (dstX0 < 0) ix0 = -dstX0;
-            if (dstY0 < 0) iy0 = -dstY0;
-            if (dstX0 + ix1 > _width)  ix1 = _width - dstX0;
-            if (dstY0 + iy1 > _height) iy1 = _height - dstY0;
+            if (canMemcpyTiles) {
+                int ix0 = 0, iy0 = 0, ix1 = ts, iy1 = ts;
+                if (dstX0 < 0) ix0 = -dstX0;
+                if (dstY0 < 0) iy0 = -dstY0;
+                if (dstX0 + ix1 > _width)  ix1 = _width - dstX0;
+                if (dstY0 + iy1 > _height) iy1 = _height - dstY0;
+                if (ix0 >= ix1 || iy0 >= iy1) continue;
 
-            if (useAlpha) {
-                // ---- Alpha blending path ----
+                int copyPixels = ix1 - ix0;
+                int dstX = dstX0 + ix0;
                 for (int iy = iy0; iy < iy1; iy++) {
-                    int sy = srcY0 + iy;
-                    if (sy < 0 || sy >= tset.height) continue;
-                    const uint32_t *srcRow_ = tset.pixels + sy * tset.width;
+                    const uint32_t *srcRow_ = tset.pixels + (srcY0 + iy) * tset.width;
                     uint32_t *dstRow_ = _framebuffer + (dstY0 + iy) * _width;
-                    for (int ix = ix0; ix < ix1; ix++) {
-                        int sx = srcX0 + ix;
-                        if (sx < 0 || sx >= tset.width) continue;
-                        uint32_t sc = srcRow_[sx];
-                        if (useColorKey && sc == COLORKEY_DEFAULT) continue;
-                        uint32_t sa = COLOR_GET_A(sc);
-                        if (sa == 0) continue;
-                        int dx = dstX0 + ix;
-                        if (sa == 255) {
-                            dstRow_[dx] = sc;
-                        } else {
-                            uint32_t dc = dstRow_[dx];
-                            uint32_t ia = 255 - sa;
-                            uint32_t or_ = (sa * COLOR_GET_R(sc) + ia * COLOR_GET_R(dc)) / 255;
-                            uint32_t og = (sa * COLOR_GET_G(sc) + ia * COLOR_GET_G(dc)) / 255;
-                            uint32_t ob = (sa * COLOR_GET_B(sc) + ia * COLOR_GET_B(dc)) / 255;
-                            dstRow_[dx] = COLOR_ARGB(255, or_, og, ob);
-                        }
-                    }
-                }
-            } else if (useColorKey) {
-                // ---- ColorKey transparent path ----
-                for (int iy = iy0; iy < iy1; iy++) {
-                    int sy = srcY0 + iy;
-                    if (sy < 0 || sy >= tset.height) continue;
-                    const uint32_t *srcRow_ = tset.pixels + sy * tset.width;
-                    uint32_t *dstRow_ = _framebuffer + (dstY0 + iy) * _width;
-                    for (int ix = ix0; ix < ix1; ix++) {
-                        int sx = srcX0 + ix;
-                        if (sx < 0 || sx >= tset.width) continue;
-                        uint32_t sc = srcRow_[sx];
-                        if (sc != COLORKEY_DEFAULT) {
-                            dstRow_[dstX0 + ix] = sc;
-                        }
-                    }
+                    memcpy(dstRow_ + dstX, srcRow_ + srcX0 + ix0, (size_t)copyPixels * sizeof(uint32_t));
                 }
             } else {
-                // ---- Opaque path (skip alpha=0) ----
-                for (int iy = iy0; iy < iy1; iy++) {
-                    int sy = srcY0 + iy;
-                    if (sy < 0 || sy >= tset.height) continue;
-                    const uint32_t *srcRow_ = tset.pixels + sy * tset.width;
-                    uint32_t *dstRow_ = _framebuffer + (dstY0 + iy) * _width;
-                    for (int ix = ix0; ix < ix1; ix++) {
-                        int sx = srcX0 + ix;
-                        if (sx < 0 || sx >= tset.width) continue;
-                        uint32_t sc = srcRow_[sx];
-                        if (COLOR_GET_A(sc) > 0) {
-                            dstRow_[dstX0 + ix] = sc;
-                        }
-                    }
-                }
+                _DrawSpriteAreaFast(tsId, dstX0, dstY0, srcX0, srcY0, ts, ts, tileFlags);
             }
         }
     }

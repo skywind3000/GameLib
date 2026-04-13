@@ -1,9 +1,9 @@
 // 09_sprite_animation.cpp - Sprite Animation
 //
-// Use DrawSpriteRegion for sprite sheet frame animation:
+// Use DrawSpriteFrameScaled for sprite sheet frame animation:
 // A little character walks on screen, switching animation frames by direction.
 // Sprite is generated with code (no external BMP files needed).
-// Learn: DrawSpriteRegion, GetDeltaTime, frame animation basics
+// Learn: DrawSpriteFrameScaled, DrawSpriteScaled, GetDeltaTime, frame animation basics
 //
 // Compile: g++ -o 09_sprite_animation.exe 09_sprite_animation.cpp -mwindows
 
@@ -143,32 +143,18 @@ int main()
             game.FillRect(gx, gy, 3, 3, COLOR_GREEN);
         }
 
-        // Character (scaled drawing)
-        int sx = frame * fw;
-        int sy = dir * fh;
-        // Manual scaling: read sprite sheet pixels, draw larger rectangles
-        for (int fy = 0; fy < fh; fy++) {
-            for (int fx = 0; fx < fw; fx++) {
-                uint32_t c = game.GetSpritePixel(charSheet, sx + fx, sy + fy);
-                if ((c >> 24) > 0) {
-                    game.FillRect((int)px + fx * scale, (int)py + fy * scale, scale, scale, c);
-                }
-            }
-        }
+        // Character (scaled frame drawing)
+        int frameIndex = dir * 3 + frame;
+        game.DrawSpriteFrameScaled(charSheet, (int)px, (int)py,
+                                   fw, fh, frameIndex,
+                                   fw * scale, fh * scale);
 
         // Sprite Sheet preview (top right)
         game.DrawText(470, 10, "Sprite Sheet:", COLOR_WHITE);
         int previewScale = 2;
         int sheetW = fw * 3, sheetH = fh * 4;
         int pvX = 470, pvY = 25;
-        for (int sy2 = 0; sy2 < sheetH; sy2++) {
-            for (int sx2 = 0; sx2 < sheetW; sx2++) {
-                uint32_t c = game.GetSpritePixel(charSheet, sx2, sy2);
-                if ((c >> 24) > 0)
-                    game.FillRect(pvX + sx2 * previewScale, pvY + sy2 * previewScale,
-                                  previewScale, previewScale, c);
-            }
-        }
+        game.DrawSpriteScaled(charSheet, pvX, pvY, sheetW * previewScale, sheetH * previewScale);
         game.DrawRect(pvX, pvY, sheetW * previewScale, sheetH * previewScale, COLOR_GRAY);
         // Highlight current frame
         game.DrawRect(pvX + frame * fw * previewScale, pvY + dir * fh * previewScale,

@@ -52,10 +52,16 @@
 | `DrawSprite(id, x, y)`                       | 绘制精灵                        |
 | `DrawSpriteEx(id, x, y, flags)`              | 带翻转/透明/Alpha混合绘制       |
 | `DrawSpriteRegion(id, x, y, sx, sy, sw, sh)` | 绘制精灵子区域                  |
+| `DrawSpriteRegionEx(...)`                    | 带 flags 绘制精灵子区域         |
+| `DrawSpriteScaled(id, x, y, w, h, flags)`    | 按目标尺寸缩放绘制精灵          |
+| `DrawSpriteFrame(...)`                       | 按帧号绘制 sprite sheet 中的帧  |
+| `DrawSpriteFrameScaled(...)`                 | 按帧号缩放绘制 sprite sheet 中的帧 |
 | `SetSpritePixel(id, x, y, color)`            | 修改精灵像素                    |
 | `GetSpritePixel(id, x, y)`                   | 读取精灵像素                    |
+| `SetSpriteColorKey(id, color)`               | 设置该精灵的 Color Key          |
+| `GetSpriteColorKey(id)`                      | 读取该精灵的 Color Key          |
 
-精灵标志：`SPRITE_FLIP_H`（水平翻转）、`SPRITE_FLIP_V`（垂直翻转）、`SPRITE_COLORKEY`（品红色透明）、`SPRITE_ALPHA`（Alpha 混合）
+精灵标志：`SPRITE_FLIP_H`（水平翻转）、`SPRITE_FLIP_V`（垂直翻转）、`SPRITE_COLORKEY`（按该精灵当前 Color Key 透明，默认品红色）、`SPRITE_ALPHA`（Alpha 混合）
 
 ### 输入
 

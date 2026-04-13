@@ -1,8 +1,8 @@
 // 08_sprite_demo.cpp - Sprite Demo
 //
-// Demo the sprite system: create sprite with code, draw, flip, region clipping.
+// Demo the sprite system: create sprite with code, draw, flip, frame extraction, scaling.
 // If there are BMP files in assets/ folder, you can also use LoadSpriteBMP.
-// Learn: CreateSprite, SetSpritePixel, DrawSprite, DrawSpriteEx, DrawSpriteRegion
+// Learn: CreateSprite, SetSpritePixel, DrawSpriteEx, DrawSpriteScaled, DrawSpriteFrameScaled
 //
 // Compile: g++ -o 08_sprite_demo.exe 08_sprite_demo.cpp -mwindows
 
@@ -125,36 +125,25 @@ int main()
         game.DrawSpriteEx(ship, 140, 90, SPRITE_FLIP_H | SPRITE_FLIP_V); // both flips
         game.DrawText(170, 95, "H+V", COLOR_GRAY);
 
-        // --- DrawSpriteRegion clip ---
-        game.DrawText(20, 130, "DrawSpriteRegion (sprite sheet):", COLOR_WHITE);
-        // Show whole sheet
-        game.DrawSprite(sheet, 20, 150);
-        game.DrawRect(20, 150, 32, 8, COLOR_GRAY);
-        // Show current frame (4x zoom to see clearly)
-        game.DrawText(70, 148, "<-- full sheet", COLOR_GRAY);
-        game.DrawText(20, 168, "Current frame:", COLOR_GRAY);
-        game.DrawSpriteRegion(sheet, 130, 163, frame * 8, 0, 8, 8);
+        // --- Frame extraction + scaled draw ---
+        game.DrawText(20, 130, "DrawSpriteFrameScaled (sprite sheet):", COLOR_WHITE);
+        // Show whole sheet, scaled 2x for visibility
+        game.DrawSpriteScaled(sheet, 20, 150, 64, 16);
+        game.DrawRect(20, 150, 64, 16, COLOR_GRAY);
+        // Show current frame enlarged, plus a flipped copy
+        game.DrawText(100, 148, "<-- full sheet", COLOR_GRAY);
+        game.DrawText(20, 172, "Current frame:", COLOR_GRAY);
+        game.DrawSpriteFrameScaled(sheet, 130, 162, 8, 8, frame, 32, 32);
+        game.DrawSpriteFrameScaled(sheet, 170, 162, 8, 8, frame, 32, 32, SPRITE_FLIP_H);
 
         // --- Movable ship ---
         game.DrawText(20, 200, "Move with arrow keys:", COLOR_WHITE);
         game.DrawSprite(ship, shipX, shipY);
 
-        // Zoomed view of ship sprite pixels
-        game.DrawText(400, 20, "Zoomed view (4x):", COLOR_WHITE);
-        if (ship >= 0) {
-            int zoomX = 400, zoomY = 40;
-            int scale = 4;
-            int sw = game.GetSpriteWidth(ship);
-            int sh = game.GetSpriteHeight(ship);
-            for (int py = 0; py < sh; py++) {
-                for (int px = 0; px < sw; px++) {
-                    uint32_t c = game.GetSpritePixel(ship, px, py);
-                    if ((c >> 24) > 0)
-                        game.FillRect(zoomX + px * scale, zoomY + py * scale, scale, scale, c);
-                }
-            }
-            game.DrawRect(zoomX, zoomY, sw * scale, sh * scale, COLOR_GRAY);
-        }
+        // Zoomed view using DrawSpriteScaled
+        game.DrawText(400, 20, "DrawSpriteScaled (4x):", COLOR_WHITE);
+        game.DrawSpriteScaled(ship, 400, 40, 64, 64);
+        game.DrawRect(400, 40, 64, 64, COLOR_GRAY);
 
         game.DrawText(10, 460, "Sprites created with code (CreateSprite + SetSpritePixel)", COLOR_DARK_GRAY);
 

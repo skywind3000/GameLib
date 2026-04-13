@@ -447,13 +447,30 @@ static bool _srandDone; // srand 是否已初始化
 - 带标志的精灵绘制
 - `SPRITE_FLIP_H`: 水平翻转
 - `SPRITE_FLIP_V`: 垂直翻转
-- `SPRITE_COLORKEY`: 与 `COLORKEY_DEFAULT`（品红 0xFFFF00FF）完全匹配的像素跳过
+- `SPRITE_COLORKEY`: 与该精灵当前 Color Key 完全匹配的像素跳过（默认值为 `COLORKEY_DEFAULT`，即品红 `0xFFFF00FF`）
 - `SPRITE_ALPHA`: 启用逐像素 Alpha 混合（alpha=0 跳过，alpha=255 直接覆盖，0<alpha<255 按比例混合）
 - 标志可组合使用，如 `SPRITE_FLIP_H | SPRITE_ALPHA`
-- **性能优化**：绘制前预裁剪计算有效像素范围，内层循环无边界检查；按模式三路展开（不透明/ColorKey/Alpha），避免逐像素 flag 判断
+- 整张绘制和区域绘制走非缩放快路径；缩放绘制走独立最近邻采样路径，但翻转、ColorKey、Alpha 语义保持一致
 
 #### `void DrawSpriteRegion(int id, int x, int y, int sx, int sy, int sw, int sh)`
 - 绘制精灵的子区域（sprite sheet 切图）
+- 等价于 `DrawSpriteRegionEx(..., 0)`
+
+#### `void DrawSpriteRegionEx(int id, int x, int y, int sx, int sy, int sw, int sh, int flags = 0)`
+- 带 flags 绘制精灵子区域
+- 翻转、ColorKey、Alpha 语义与 `DrawSpriteEx` 完全一致
+
+#### `void DrawSpriteScaled(int id, int x, int y, int w, int h, int flags = 0)`
+- 将整张精灵按目标尺寸缩放绘制
+- 当前实现使用最近邻采样，适合像素风和教学场景
+
+#### `void DrawSpriteFrame(int id, int x, int y, int frameW, int frameH, int frameIndex, int flags = 0)`
+- 按从左到右、从上到下的顺序绘制 sprite sheet 中的某一帧
+- 每行帧数由 `spriteWidth / frameW` 自动推导
+
+#### `void DrawSpriteFrameScaled(int id, int x, int y, int frameW, int frameH, int frameIndex, int w, int h, int flags = 0)`
+- 先按帧号选取 sprite sheet 子区域，再按目标尺寸缩放绘制
+- 适合角色动画、头像预览、物品图标放大等常见场景
 
 #### `void SetSpritePixel(int id, int x, int y, uint32_t color)`
 - 修改精灵指定像素
@@ -463,6 +480,10 @@ static bool _srandDone; // srand 是否已初始化
 
 #### `int GetSpriteWidth(int id) const` / `int GetSpriteHeight(int id) const`
 - 获取精灵尺寸
+
+#### `void SetSpriteColorKey(int id, uint32_t color)` / `uint32_t GetSpriteColorKey(int id) const`
+- 设置或读取该精灵自己的 Color Key
+- 配合 `SPRITE_COLORKEY` 使用时，不再强依赖全局 `COLORKEY_DEFAULT`
 
 ### 6.7 输入系统
 
@@ -667,9 +688,9 @@ int main() {
 
 ### 未来改进方向
 
-1. **精灵缩放/旋转** — 添加 `DrawSpriteScaled` / `DrawSpriteRotated`
+1. **精灵旋转** — 添加 `DrawSpriteRotated`
 2. **更多图元** — 椭圆、圆角矩形、贝塞尔曲线等
-3. **简单动画系统** — 帧动画支持（sprite sheet 自动切帧）
+3. **简单动画系统** — 在 `DrawSpriteFrame` 之上补更高层的动画播放辅助
 4. **音频增强** — 多通道音效、音量控制
 5. **示例游戏 Demo** — 编写打砖块、太空射击等示例
 
@@ -703,14 +724,14 @@ int main() {
 | `LoadSprite` GDI+ 失败时 BMP 回退 | 兼容无 GDI+ 的极端环境，BMP 仍可通过 `LoadSpriteBMP` 加载 |
 | GDI+ 加载后检测全零 alpha 并修正为 255 | 24 位图片（BMP/JPG 等无 alpha 通道）经 GDI+ 转 32bppARGB 后 alpha 可能为 0，导致绘制时被当作透明跳过 |
 | Alpha 混合用 `SPRITE_ALPHA` 标志显式启用 | 默认不混合（性能优先），需要混合时通过 `DrawSpriteEx` 传入标志，避免不必要的每像素计算 |
-| `DrawSpriteEx` 预裁剪 + 三路循环展开 | 预裁剪消除内层逐像素边界检查；按不透明/ColorKey/Alpha 三种模式展开独立循环，避免逐像素 flag 分支 |
+| 精灵绘制拆分为非缩放快路径和缩放路径 | 常见 `DrawSprite` / `DrawSpriteRegion` 走整数步进快路径；真正缩放时才做最近邻采样 |
 | mmsystem 类型和常量自行声明 | 不再 `#include <mmsystem.h>`，减少头文件依赖，避免与 `WIN32_LEAN_AND_MEAN` 冲突 |
 | `unsigned int` 替代 `UINT32` | GCC 4.9.2 的 MinGW 头文件可能未定义 `UINT32` |
 | Tilemap tiles 用 `int*`（malloc 分配）管理 | 与精灵像素内存管理风格一致，析构时自动释放 |
 | Tilemap 瓦片 ID 用 -1 表示空 | 0 是有效的 tileset 第一块瓦片，-1 不会与任何瓦片冲突 |
 | `tilesetCols` 在 `CreateTilemap` 时预计算 | 避免 `DrawTilemap` 每帧重复计算除法 |
 | `DrawTilemap` 预计算可见瓦片范围 | 大地图（如 200×50）时只遍历屏幕内的瓦片，保证绘制性能 |
-| `DrawTilemap` 三路循环展开 | 与 `DrawSpriteEx` 一致的优化策略，避免逐像素 flag 分支 |
+| `DrawTilemap` 复用非缩放精灵快路径 | 无 `SPRITE_ALPHA` / `SPRITE_COLORKEY` 时逐行 memcpy；其他情况转到 `_DrawSpriteAreaFast`，避免保留重复实现 |
 | Tilemap 不管理 tileset 精灵的生命周期 | `FreeTilemap` 只释放 tiles 数组，tileset 精灵由用户通过 `FreeSprite` 控制 |
 | DIB Section + 常备 DC | 创建 `CreateDIBSection` 并选入常备 `_memDC`，帧缓冲内存由 DIB Section 管理，支持当前 Windows 后端的字体文字输出 |
 | `DrawTextFont` 动态创建字体 | 每次调用创建/销毁字体，适合少量文字；若需大量文字可后续添加字体缓存 |
