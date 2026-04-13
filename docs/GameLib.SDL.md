@@ -120,14 +120,33 @@ SDL 版实现上，要求在 `SDL_Init()` 之前设置 Windows DPI awareness 提
 
 ## 3. 依赖与构建模型
 
-### 3.1 必需依赖
+### 3.1 依赖分层
 
-`GameLib.SDL.h` 首版规格选择如下依赖：
+`GameLib.SDL.h` 的依赖分为一层基础依赖和三层可选扩展：
 
-- `SDL2`：窗口、事件、定时、纹理提交、基础音频设备初始化。
-- `SDL2_image`：PNG / JPG / BMP / GIF 等图片解码。
-- `SDL2_ttf`：可缩放字体渲染。
-- `SDL_mixer`：音效与背景音乐播放。
+- `SDL2`：必需。负责窗口、事件、定时、纹理提交、基础音频设备初始化。
+- `SDL2_image`：可选。负责 PNG / JPG / BMP / GIF 等图片解码。
+- `SDL2_ttf`：可选。负责可缩放字体渲染。
+- `SDL_mixer`：可选。负责音效与背景音乐播放。
+
+当前实现默认策略是：
+
+- 若编译器能在 include path 里找到 `SDL_image.h` / `SDL_ttf.h` / `SDL_mixer.h`，则自动启用对应功能。
+- 若找不到对应头文件，则自动关闭该功能，对应 API 进入 no-op / 失败返回的降级路径。
+- 若你已经安装了这些头文件，但暂时不想链接某个扩展库，可以在 `#include "GameLib.SDL.h"` 之前显式关闭：
+
+```cpp
+#define GAMELIB_SDL_DISABLE_IMAGE 1
+#define GAMELIB_SDL_DISABLE_TTF 1
+#define GAMELIB_SDL_DISABLE_MIXER 1
+#include "GameLib.SDL.h"
+```
+
+说明：
+
+- `GAMELIB_SDL_DISABLE_IMAGE=1` 时，`LoadSprite()` 的非 BMP 扩展格式支持会被关闭。
+- `GAMELIB_SDL_DISABLE_TTF=1` 时，`DrawTextFont()` 和字体测量函数会退化为不可用状态。
+- `GAMELIB_SDL_DISABLE_MIXER=1` 时，`PlayWAV()` / `PlayMusic()` 的高层 SDL_mixer 路径会被关闭，但 `PlayBeep()` 仍可走 plain SDL 音频兜底。
 
 ### 3.2 关于音频库的决策
 
@@ -172,10 +191,40 @@ SDL 版实现上，要求在 `SDL_Init()` 之前设置 Windows DPI awareness 提
 
 ### 3.5 推荐编译命令
 
-Windows / MinGW 示例：
+Windows / MinGW 最小命令（只启用 SDL2 核心能力）示例：
 
 ```bash
-g++ -std=c++11 -o game.exe main.cpp -lSDL2main -lSDL2 -lSDL2_image -lSDL2_ttf -lSDL2_mixer
+g++ -std=c++11 -O2 -o game.exe main.cpp -lSDL2
+```
+
+说明：
+
+- 当前实现已在头文件内部定义 `SDL_MAIN_HANDLED` 并调用 `SDL_SetMainReady()`，因此 **不需要 `-lSDL2main`**。
+- 若要隐藏控制台，可自行追加 `-mwindows`。
+- 若 include path 中存在 `SDL2_image` / `SDL2_ttf` / `SDL2_mixer` 头文件，则还应同时链接对应库；否则请用 `GAMELIB_SDL_DISABLE_*` 宏显式关闭对应后端。
+
+Windows / MinGW + vcpkg（已验证可编译 `tests/sdldemo2.cpp`）示例：
+
+```bash
+g++ -O2 -Wall -std=c++11 -fstrict-aliasing main.cpp -o game.exe \
+    -Ie:/local/vcpkg/installed/x86-mingw-dynamic/include \
+    -Le:/local/vcpkg/installed/x86-mingw-dynamic/lib \
+    -lsdl2 -lsdl2_image -lsdl2_ttf -lsdl2_mixer
+```
+
+若你只想测试核心 SDL2 功能，可写成：
+
+```cpp
+#define GAMELIB_SDL_DISABLE_IMAGE 1
+#define GAMELIB_SDL_DISABLE_TTF 1
+#define GAMELIB_SDL_DISABLE_MIXER 1
+#include "GameLib.SDL.h"
+```
+
+对应编译命令只需：
+
+```bash
+g++ -O2 -Wall -std=c++11 main.cpp -o game.exe -lSDL2
 ```
 
 Linux 示例：
@@ -189,6 +238,11 @@ macOS（Homebrew 安装 SDL 后）示例：
 ```bash
 clang++ -std=c++11 -o game main.cpp $(sdl2-config --cflags --libs) -lSDL2_image -lSDL2_ttf -lSDL2_mixer
 ```
+
+运行时说明：
+
+- Windows 下若使用动态库版本，还需要确保 `SDL2.dll`、`SDL2_image.dll`、`SDL2_ttf.dll`、`SDL2_mixer.dll` 等运行时 DLL 能被找到。
+- 最简单的方式是把它们放到可执行文件同目录，或保证其所在目录已加入 `PATH`。
 
 ---
 

@@ -9,7 +9,8 @@
 - docs/      # documentations
 - examples/  # examples (01~16 渐进式示例，可作为参考和回归测试)
 - tests/     # tests
-- GameLib.h  # main source (单头文件，所有实现都在这一个文件里)
+- GameLib.h  # main source (Win32 主线，单头文件，所有实现都在这一个文件里)
+- GameLib.SDL.h # independent SDL product line (跨平台 SDL 版单头文件)
 - AGENTS.md  # this file
 - README.md  # project home page
 ```
@@ -19,6 +20,7 @@
 ```
 - docs/Manual.md              # GameLib.h 的接口说明，做游戏和改库都要先读
 - docs/GameLib.md             # GameLib.h 的技术规格、设计思路和已合并的 1.1 演进说明
+- docs/GameLib.SDL.md         # GameLib.SDL.h 的规格说明、依赖选择、兼容边界和实现决策
 ```
 
 ## Assets
@@ -73,3 +75,10 @@ g++ -o output.exe source.cpp -mwindows
 - 阅读 docs/GameLib.md，了解当前设计思路、技术约束和已合并的接口演进。
 - 修改后必须遵守 Code Constraints 中的所有约束。
 - 修改后用 examples/ 下的示例进行回归验证，确保编译通过且功能正常。
+
+### 迭代 GameLib.SDL.h
+
+- `GameLib.SDL.h` 是独立 SDL 产品线，不替代 `GameLib.h` 的 Win32 零依赖主线；修改时不要把两者的约束混为一谈。
+- 先阅读 `docs/GameLib.SDL.md`，确认 SDL 版的目标平台、可选依赖、兼容边界和当前实现决策。
+- 修改 `GameLib.SDL.h` 时优先保持 `GameLib` 风格 API 与软件 framebuffer 语义不变。
+- 修改后优先用 `tests/sdldemo1.cpp` ~ `tests/sdldemo4.cpp` 做回归验证，分别覆盖基础绘制、字体与音频路径。

@@ -184,6 +184,21 @@ typedef struct Mix_Music Mix_Music;
 #define GAMELIB_SDL_DEFAULT_FONT ""
 #endif
 
+// Optional SDL extension backends are auto-enabled when their headers are present.
+// Define these macros to 1 before including GameLib.SDL.h if you want to force-disable
+// a backend and avoid linking the corresponding extension library.
+#ifndef GAMELIB_SDL_DISABLE_IMAGE
+#define GAMELIB_SDL_DISABLE_IMAGE 0
+#endif
+
+#ifndef GAMELIB_SDL_DISABLE_TTF
+#define GAMELIB_SDL_DISABLE_TTF 0
+#endif
+
+#ifndef GAMELIB_SDL_DISABLE_MIXER
+#define GAMELIB_SDL_DISABLE_MIXER 0
+#endif
+
 // Windows DPI behavior: match GameLib.h by default.
 // "unaware" lets Windows scale the whole window with the system scale factor,
 // so a logical 800x600 window stays comfortably readable on high-DPI displays.
@@ -498,7 +513,9 @@ static const unsigned char _gamelib_font8x8[95][8] = {
 #include <SDL.h>
 #endif
 
-#if defined(__has_include)
+#if GAMELIB_SDL_DISABLE_IMAGE
+#define GAMELIB_SDL_HAS_IMAGE 0
+#elif defined(__has_include)
 #if __has_include(<SDL_image.h>)
 #include <SDL_image.h>
 #define GAMELIB_SDL_HAS_IMAGE 1
@@ -512,7 +529,9 @@ static const unsigned char _gamelib_font8x8[95][8] = {
 #define GAMELIB_SDL_HAS_IMAGE 0
 #endif
 
-#if defined(__has_include)
+#if GAMELIB_SDL_DISABLE_TTF
+#define GAMELIB_SDL_HAS_TTF 0
+#elif defined(__has_include)
 #if __has_include(<SDL_ttf.h>)
 #include <SDL_ttf.h>
 #define GAMELIB_SDL_HAS_TTF 1
@@ -526,7 +545,9 @@ static const unsigned char _gamelib_font8x8[95][8] = {
 #define GAMELIB_SDL_HAS_TTF 0
 #endif
 
-#if defined(__has_include)
+#if GAMELIB_SDL_DISABLE_MIXER
+#define GAMELIB_SDL_HAS_MIXER 0
+#elif defined(__has_include)
 #if __has_include(<SDL_mixer.h>)
 #include <SDL_mixer.h>
 #define GAMELIB_SDL_HAS_MIXER 1

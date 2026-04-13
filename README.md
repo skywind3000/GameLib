@@ -72,6 +72,7 @@ g++ main.cpp -o game.exe -mwindows
 - 不依赖 SDL / SFML / DirectX / OpenGL
 - 不需要再写 `-lgdi32 -lwinmm -lgdiplus -lole32` 等链接参数，推荐使用 `-mwindows`
 - 兼容 Dev C++ 自带的 GCC 4.9.2
+- 仓库中另有独立的 `GameLib.SDL.h` 版本，依赖 SDL2 系列库，面向跨平台场景。
 
 ### 开箱即用的绘图
 
