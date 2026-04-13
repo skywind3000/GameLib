@@ -118,7 +118,9 @@ g++ main.cpp -o game.exe -mwindows
 ### Tilemap 系统
 
 - `CreateTilemap` — 用 tileset 精灵创建瓦片地图
-- `SetTile` / `GetTile` — 设置和读取瓦片
+- `SetTile` / `GetTile` / `FillTileRect` / `ClearTilemap` — 单点和批量设置瓦片
+- `GetTilemapCols` / `GetTilemapRows` / `GetTileSize` — 读取地图元数据
+- `WorldToTileCol` / `WorldToTileRow` / `GetTileAtPixel` — 把像素坐标换算成瓦片坐标
 - `DrawTilemap` — 绘制地图，支持不透明、Color Key、Alpha 三种模式
 - 只绘制屏幕可见范围内的瓦片，大地图也不卡
 - 配合相机偏移轻松实现横版卷轴和视差滚动
@@ -323,7 +325,7 @@ g++ -o demo.exe examples/01_hello.cpp -mwindows
 
 | 示例 | 说明 | 学到什么 |
 |-|-|-|
-| `05_paint.cpp` | 简易画板 | 鼠标输入、SetPixel、按键切换颜色 |
+| `05_paint.cpp` | 简易画板 | 鼠标输入、滚轮调笔刷、失焦暂停 |
 | `06_catch_fruit.cpp` | 接水果小游戏 | Random、碰撞检测、计分 |
 | `07_shooting_stars.cpp` | 简易射击 | 数组管理多对象、子弹发射、碰撞销毁 |
 
@@ -347,7 +349,7 @@ g++ -o demo.exe examples/01_hello.cpp -mwindows
 
 | 示例 | 说明 | 学到什么 |
 |-|-|-|
-| `14_tilemap.cpp` | 双层卷轴 | CreateTilemap、视差滚动、代码生成瓦片图形 |
+| `14_tilemap.cpp` | 双层卷轴 | FillTileRect/ClearTilemap、像素转瓦片、视差滚动 |
 
 
 
@@ -423,8 +425,13 @@ g++ -o demo.exe examples/01_hello.cpp -mwindows
 |-|-|
 | `IsKeyDown(key)` | 按键是否按住 |
 | `IsKeyPressed(key)` | 按键是否刚按下（单次触发） |
+| `IsKeyReleased(key)` | 按键是否刚松开（单次触发） |
 | `GetMouseX()` / `GetMouseY()` | 鼠标位置 |
 | `IsMouseDown(button)` | 鼠标按键是否按下 |
+| `IsMousePressed(button)` | 鼠标按键是否刚按下（单次触发） |
+| `IsMouseReleased(button)` | 鼠标按键是否刚松开（单次触发） |
+| `GetMouseWheelDelta()` | 自上次 `Update()` 以来累计的滚轮增量 |
+| `IsActive()` | 窗口当前是否处于激活状态 |
 
 ### 声音
 
@@ -457,9 +464,15 @@ g++ -o demo.exe examples/01_hello.cpp -mwindows
 | `FreeTilemap(mapId)` | 释放地图 |
 | `SetTile(mapId, col, row, tileId)` | 设置瓦片（-1=空） |
 | `GetTile(mapId, col, row)` | 读取瓦片 |
+| `GetTilemapCols(mapId)` / `GetTilemapRows(mapId)` | 读取地图列数和行数 |
+| `GetTileSize(mapId)` | 读取地图瓦片尺寸 |
+| `WorldToTileCol(mapId, x)` / `WorldToTileRow(mapId, y)` | 像素坐标转瓦片坐标 |
+| `GetTileAtPixel(mapId, x, y)` | 按像素位置读取瓦片 |
+| `FillTileRect(mapId, col, row, cols, rows, tileId)` | 批量填充矩形区域 |
+| `ClearTilemap(mapId, tileId)` | 用指定瓦片清空整张地图 |
 | `DrawTilemap(mapId, x, y, flags)` | 绘制地图（支持 ColorKey/Alpha） |
 
-tileset 是一张普通精灵（`LoadSprite` / `CreateSprite`），按 `tileSize` 自动切分。`DrawTilemap` 只绘制屏幕可见瓦片，传 `(-cameraX, -cameraY)` 即可实现卷轴。
+tileset 是一张普通精灵（`LoadSprite` / `CreateSprite`），按 `tileSize` 自动切分。`WorldToTileCol/Row` 对负坐标也按向下取整换算。`DrawTilemap` 只绘制屏幕可见瓦片，传 `(-cameraX, -cameraY)` 即可实现卷轴。
 
 ### 颜色常量
 

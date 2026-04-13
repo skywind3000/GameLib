@@ -493,6 +493,9 @@ static bool _srandDone; // srand 是否已初始化
 #### `bool IsKeyPressed(int key) const`
 - 按键是否刚刚按下（**边沿检测**：当前帧按下且上一帧未按下）
 
+#### `bool IsKeyReleased(int key) const`
+- 按键是否刚刚松开（**边沿检测**：当前帧未按下且上一帧按下）
+
 #### `int GetMouseX() const` / `int GetMouseY() const`
 - 鼠标相对于客户区的坐标
 
@@ -501,6 +504,18 @@ static bool _srandDone; // srand 是否已初始化
 
 #### `bool IsMousePressed(int button) const`
 - 鼠标按键是否刚刚按下（**边沿检测**：当前帧按下且上一帧未按下）
+
+#### `bool IsMouseReleased(int button) const`
+- 鼠标按键是否刚刚松开（**边沿检测**：当前帧未按下且上一帧按下）
+
+#### `int GetMouseWheelDelta() const`
+- 返回自上次 `Update()` 以来累计的滚轮增量
+- Windows 标准滚轮一格通常为 `120` 或 `-120`
+- 读取本函数不会清零；在下一次 `Update()` 开始时刷新为 0
+
+#### `bool IsActive() const`
+- 返回窗口当前是否处于激活状态
+- 适合在游戏失焦时暂停输入、停止绘制交互或显示暂停提示
 
 ### 6.8 声音
 
@@ -585,17 +600,41 @@ static bool _srandDone; // srand 是否已初始化
 - 获取 (col, row) 处的瓦片编号
 - 越界返回 -1
 
+#### `int GetTilemapCols(int mapId) const` / `int GetTilemapRows(int mapId) const`
+- 返回地图的列数和行数
+- `mapId` 无效时返回 0
+
+#### `int GetTileSize(int mapId) const`
+- 返回地图瓦片边长（像素）
+- `mapId` 无效时返回 0
+
+#### `int WorldToTileCol(int mapId, int x) const` / `int WorldToTileRow(int mapId, int y) const`
+- 按地图的 `tileSize` 将像素坐标换算为瓦片坐标
+- 使用向下取整，因此负坐标也能得到符合直觉的结果（如 `x=-1` 且 `tileSize=16` 时返回 `-1`）
+
+#### `int GetTileAtPixel(int mapId, int x, int y) const`
+- 先做像素到瓦片坐标换算，再返回对应瓦片编号
+- 越界或空格返回 -1，适合做脚下地面检测、像素级地图碰撞查询
+
+#### `void FillTileRect(int mapId, int col, int row, int cols, int rows, int tileId)`
+- 用同一个 `tileId` 批量填充一块矩形瓦片区域
+- 会自动裁剪到地图边界，适合快速生成地面、平台、房间块
+
+#### `void ClearTilemap(int mapId, int tileId = -1)`
+- 将整张地图填充为同一个瓦片编号
+- 默认值 `-1` 表示清空整张地图
+
 #### `void DrawTilemap(int mapId, int x, int y, int flags = 0)`
 - 绘制瓦片地图到帧缓冲
 - `(x, y)`：地图左上角在屏幕上的位置（卷轴时传 `-cameraX, -cameraY`）
 - `flags`：绘制模式，与 `DrawSpriteEx` 一致：
   - `0`（默认）— 不透明模式（跳过 alpha=0 的像素）
-  - `SPRITE_COLORKEY` — 跳过品红色（`COLORKEY_DEFAULT`）像素
+  - `SPRITE_COLORKEY` — 跳过 tileset 当前 Color Key 对应的像素
   - `SPRITE_ALPHA` — 逐像素 Alpha 混合
   - `SPRITE_ALPHA | SPRITE_COLORKEY` — 可组合使用
 - **性能优化**：只绘制屏幕可见范围内的瓦片（自动计算可见列/行范围），不遍历整张地图
 - 每个瓦片做像素级边缘裁剪，处理屏幕边界的半瓦片
-- 按不透明/ColorKey/Alpha 三种模式展开独立循环，避免逐像素 flag 判断
+- 无 `SPRITE_ALPHA` / `SPRITE_COLORKEY` 时逐行 `memcpy`；其他情况复用 `_DrawSpriteAreaFast`
 
 ---
 
@@ -610,6 +649,7 @@ static bool _srandDone; // srand 是否已初始化
 | `WM_KEYDOWN` | 过滤重复按键（bit 30），设置 `_keys[vk] = 1` |
 | `WM_KEYUP` | 设置 `_keys[vk] = 0` |
 | `WM_MOUSEMOVE` | 更新 `_mouseX`, `_mouseY` |
+| `WM_MOUSEWHEEL` | 更新鼠标位置并累计 `_mouseWheelDelta` |
 | `WM_LBUTTONDOWN/UP` | 更新 `_mouseButtons[0]` |
 | `WM_RBUTTONDOWN/UP` | 更新 `_mouseButtons[1]` |
 | `WM_MBUTTONDOWN/UP` | 更新 `_mouseButtons[2]` |

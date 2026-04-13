@@ -69,8 +69,13 @@
 | ----------------------------- | -------------------------- |
 | `IsKeyDown(key)`              | 按键是否按住               |
 | `IsKeyPressed(key)`           | 按键是否刚按下（单次触发） |
+| `IsKeyReleased(key)`          | 按键是否刚松开（单次触发） |
 | `GetMouseX()` / `GetMouseY()` | 鼠标位置                   |
 | `IsMouseDown(button)`         | 鼠标按键是否按下           |
+| `IsMousePressed(button)`      | 鼠标按键是否刚按下（单次触发） |
+| `IsMouseReleased(button)`     | 鼠标按键是否刚松开（单次触发） |
+| `GetMouseWheelDelta()`        | 自上次 `Update()` 以来累计的滚轮增量 |
+| `IsActive()`                  | 窗口当前是否处于激活状态   |
 
 ### 声音
 
@@ -103,9 +108,15 @@
 | `FreeTilemap(mapId)`                             | 释放地图                        |
 | `SetTile(mapId, col, row, tileId)`               | 设置瓦片（-1=空）               |
 | `GetTile(mapId, col, row)`                       | 读取瓦片                        |
+| `GetTilemapCols(mapId)` / `GetTilemapRows(mapId)` | 读取地图列数和行数             |
+| `GetTileSize(mapId)`                             | 读取地图瓦片尺寸                |
+| `WorldToTileCol(mapId, x)` / `WorldToTileRow(mapId, y)` | 像素坐标转瓦片坐标      |
+| `GetTileAtPixel(mapId, x, y)`                    | 按像素位置读取瓦片              |
+| `FillTileRect(mapId, col, row, cols, rows, tileId)` | 批量填充矩形区域           |
+| `ClearTilemap(mapId, tileId)`                    | 用指定瓦片清空整张地图          |
 | `DrawTilemap(mapId, x, y, flags)`                | 绘制地图（支持 ColorKey/Alpha） |
 
-tileset 是一张普通精灵（`LoadSprite` / `CreateSprite`），按 `tileSize` 自动切分。`DrawTilemap` 只绘制屏幕可见瓦片，传 `(-cameraX, -cameraY)` 即可实现卷轴。
+tileset 是一张普通精灵（`LoadSprite` / `CreateSprite`），按 `tileSize` 自动切分。`WorldToTileCol/Row` 对负坐标也按向下取整换算。`DrawTilemap` 只绘制屏幕可见瓦片，传 `(-cameraX, -cameraY)` 即可实现卷轴。
 
 ### 颜色常量
 

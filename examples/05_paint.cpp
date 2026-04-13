@@ -1,7 +1,7 @@
 // 05_paint.cpp - Simple Paint
 //
 // A simple paint program: draw with mouse, change color/brush/clear with keyboard.
-// Learn: GetMouseX/Y, IsMouseDown, FillCircle, IsKeyPressed
+// Learn: GetMouseX/Y, IsMouseDown, IsMouseReleased, GetMouseWheelDelta, IsActive
 //
 // Compile: g++ -o 05_paint.exe 05_paint.cpp -mwindows
 
@@ -26,6 +26,7 @@ int main()
     while (!game.IsClosed()) {
         int mx = game.GetMouseX();
         int my = game.GetMouseY();
+        int wheelSteps = game.GetMouseWheelDelta() / 120;
 
         // Switch color: 1-8 number keys
         for (int i = 0; i < colorCount; i++) {
@@ -33,21 +34,37 @@ int main()
                 colorIndex = i;
         }
 
-        // Brush size: +/-
+        // Brush size: Up/Down or mouse wheel
         if (game.IsKeyPressed(KEY_UP) && brushSize < 30) brushSize += 2;
         if (game.IsKeyPressed(KEY_DOWN) && brushSize > 1) brushSize -= 2;
+        if (wheelSteps != 0) {
+            brushSize += wheelSteps * 2;
+            if (brushSize < 1) brushSize = 1;
+            if (brushSize > 30) brushSize = 30;
+        }
 
         // Clear screen: C key
         if (game.IsKeyPressed(KEY_C))
             game.Clear(COLOR_BLACK);
 
+        // Click palette on release, avoid selecting colors while dragging.
+        if (game.IsMouseReleased(MOUSE_LEFT) && my >= 4 && my < 22) {
+            for (int i = 0; i < colorCount; i++) {
+                int bx = 10 + i * 22;
+                if (mx >= bx && mx < bx + 18) {
+                    colorIndex = i;
+                    break;
+                }
+            }
+        }
+
         // Left button: draw
-        if (game.IsMouseDown(MOUSE_LEFT) && my > 30) {
+        if (game.IsMouseDown(MOUSE_LEFT) && my > 30 && game.IsActive()) {
             game.FillCircle(mx, my, brushSize, palette[colorIndex]);
         }
 
         // Right button: eraser
-        if (game.IsMouseDown(MOUSE_RIGHT) && my > 30) {
+        if (game.IsMouseDown(MOUSE_RIGHT) && my > 30 && game.IsActive()) {
             game.FillCircle(mx, my, brushSize + 4, COLOR_BLACK);
         }
 
@@ -66,8 +83,9 @@ int main()
         game.FillCircle(210, 13, brushSize, palette[colorIndex]);
 
         // Hints
-        game.DrawText(240, 4, "1-8:Color  Up/Down:Size", COLOR_LIGHT_GRAY);
+        game.DrawText(240, 4, "1-8/Click:Color  Up/Down/Wheel:Size", COLOR_LIGHT_GRAY);
         game.DrawText(240, 16, "L:Draw  R:Erase  C:Clear", COLOR_LIGHT_GRAY);
+        game.DrawText(520, 16, game.IsActive() ? "ACTIVE" : "PAUSED", game.IsActive() ? COLOR_GREEN : COLOR_YELLOW);
 
         game.Update();
         game.WaitFrame(60);

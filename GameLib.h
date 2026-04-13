@@ -356,10 +356,14 @@ public:
     // -------- Input --------
     bool IsKeyDown(int key) const;
     bool IsKeyPressed(int key) const;
+    bool IsKeyReleased(int key) const;
     int GetMouseX() const;
     int GetMouseY() const;
     bool IsMouseDown(int button) const;
     bool IsMousePressed(int button) const;
+    bool IsMouseReleased(int button) const;
+    int GetMouseWheelDelta() const;
+    bool IsActive() const;
 
     // -------- Sound --------
     void PlayBeep(int frequency, int duration);
@@ -387,6 +391,14 @@ public:
     void FreeTilemap(int mapId);
     void SetTile(int mapId, int col, int row, int tileId);
     int GetTile(int mapId, int col, int row) const;
+    int GetTilemapCols(int mapId) const;
+    int GetTilemapRows(int mapId) const;
+    int GetTileSize(int mapId) const;
+    int WorldToTileCol(int mapId, int x) const;
+    int WorldToTileRow(int mapId, int y) const;
+    int GetTileAtPixel(int mapId, int x, int y) const;
+    void FillTileRect(int mapId, int col, int row, int cols, int rows, int tileId);
+    void ClearTilemap(int mapId, int tileId = -1);
     void DrawTilemap(int mapId, int x, int y, int flags = 0);
 
 private:
@@ -442,6 +454,7 @@ private:
     int _mouseY;
     int _mouseButtons[3];
     int _mouseButtons_prev[3];
+    int _mouseWheelDelta;
 
     // timing
     DWORD _timeStart;
@@ -876,6 +889,7 @@ GameLib::GameLib()
     _mouseY = 0;
     memset(_mouseButtons, 0, sizeof(_mouseButtons));
     memset(_mouseButtons_prev, 0, sizeof(_mouseButtons_prev));
+    _mouseWheelDelta = 0;
     _timeStart = 0;
     _timePrev = 0;
     _deltaTime = 0.0f;
@@ -1037,6 +1051,18 @@ LRESULT CALLBACK GameLib::_WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lP
         if (self) {
             self->_mouseX = (int)(short)LOWORD(lParam);
             self->_mouseY = (int)(short)HIWORD(lParam);
+        }
+        return 0;
+
+    case WM_MOUSEWHEEL:
+        if (self) {
+            POINT pt;
+            pt.x = (int)(short)LOWORD(lParam);
+            pt.y = (int)(short)HIWORD(lParam);
+            ScreenToClient(hWnd, &pt);
+            self->_mouseX = pt.x;
+            self->_mouseY = pt.y;
+            self->_mouseWheelDelta += (int)(short)HIWORD(wParam);
         }
         return 0;
 
@@ -1255,6 +1281,7 @@ int GameLib::Open(int width, int height, const char *title, bool center)
     memset(_keys_prev, 0, sizeof(_keys_prev));
     memset(_mouseButtons, 0, sizeof(_mouseButtons));
     memset(_mouseButtons_prev, 0, sizeof(_mouseButtons_prev));
+    _mouseWheelDelta = 0;
 
     return 0;
 }
@@ -1286,6 +1313,7 @@ void GameLib::Update()
     // Save previous frame key/mouse state (for edge detection)
     memcpy(_keys_prev, _keys, sizeof(_keys));
     memcpy(_mouseButtons_prev, _mouseButtons, sizeof(_mouseButtons));
+    _mouseWheelDelta = 0;
 
     // Dispatch messages
     _DispatchMessages();
@@ -2432,6 +2460,12 @@ bool GameLib::IsKeyPressed(int key) const
     return (_keys[k] != 0) && (_keys_prev[k] == 0);
 }
 
+bool GameLib::IsKeyReleased(int key) const
+{
+    int k = key & 511;
+    return (_keys[k] == 0) && (_keys_prev[k] != 0);
+}
+
 int GameLib::GetMouseX() const { return _mouseX; }
 int GameLib::GetMouseY() const { return _mouseY; }
 
@@ -2445,6 +2479,22 @@ bool GameLib::IsMousePressed(int button) const
 {
     if (button < 0 || button > 2) return false;
     return (_mouseButtons[button] != 0) && (_mouseButtons_prev[button] == 0);
+}
+
+bool GameLib::IsMouseReleased(int button) const
+{
+    if (button < 0 || button > 2) return false;
+    return (_mouseButtons[button] == 0) && (_mouseButtons_prev[button] != 0);
+}
+
+int GameLib::GetMouseWheelDelta() const
+{
+    return _mouseWheelDelta;
+}
+
+bool GameLib::IsActive() const
+{
+    return _active;
 }
 
 
@@ -2595,6 +2645,15 @@ void GameLib::FillCell(int gridX, int gridY, int row, int col, int cellSize, uin
              cellSize - 1, cellSize - 1, color);
 }
 
+static int _gamelib_floor_div(int value, int divisor)
+{
+    if (divisor <= 0) return 0;
+    int q = value / divisor;
+    int r = value % divisor;
+    if (r != 0 && ((r > 0) != (divisor > 0))) q--;
+    return q;
+}
+
 
 //=====================================================================
 // Tilemap System
@@ -2667,6 +2726,84 @@ int GameLib::GetTile(int mapId, int col, int row) const
     if (col < 0 || col >= _tilemaps[mapId].cols) return -1;
     if (row < 0 || row >= _tilemaps[mapId].rows) return -1;
     return _tilemaps[mapId].tiles[row * _tilemaps[mapId].cols + col];
+}
+
+int GameLib::GetTilemapCols(int mapId) const
+{
+    if (mapId < 0 || mapId >= (int)_tilemaps.size()) return 0;
+    if (!_tilemaps[mapId].used) return 0;
+    return _tilemaps[mapId].cols;
+}
+
+int GameLib::GetTilemapRows(int mapId) const
+{
+    if (mapId < 0 || mapId >= (int)_tilemaps.size()) return 0;
+    if (!_tilemaps[mapId].used) return 0;
+    return _tilemaps[mapId].rows;
+}
+
+int GameLib::GetTileSize(int mapId) const
+{
+    if (mapId < 0 || mapId >= (int)_tilemaps.size()) return 0;
+    if (!_tilemaps[mapId].used) return 0;
+    return _tilemaps[mapId].tileSize;
+}
+
+int GameLib::WorldToTileCol(int mapId, int x) const
+{
+    if (mapId < 0 || mapId >= (int)_tilemaps.size()) return 0;
+    if (!_tilemaps[mapId].used) return 0;
+    return _gamelib_floor_div(x, _tilemaps[mapId].tileSize);
+}
+
+int GameLib::WorldToTileRow(int mapId, int y) const
+{
+    if (mapId < 0 || mapId >= (int)_tilemaps.size()) return 0;
+    if (!_tilemaps[mapId].used) return 0;
+    return _gamelib_floor_div(y, _tilemaps[mapId].tileSize);
+}
+
+int GameLib::GetTileAtPixel(int mapId, int x, int y) const
+{
+    return GetTile(mapId, WorldToTileCol(mapId, x), WorldToTileRow(mapId, y));
+}
+
+void GameLib::FillTileRect(int mapId, int col, int row, int cols, int rows, int tileId)
+{
+    if (mapId < 0 || mapId >= (int)_tilemaps.size()) return;
+    if (!_tilemaps[mapId].used) return;
+    if (cols <= 0 || rows <= 0) return;
+
+    GameTilemap &tm = _tilemaps[mapId];
+    int col0 = col;
+    int row0 = row;
+    int col1 = col + cols;
+    int row1 = row + rows;
+
+    if (col0 < 0) col0 = 0;
+    if (row0 < 0) row0 = 0;
+    if (col1 > tm.cols) col1 = tm.cols;
+    if (row1 > tm.rows) row1 = tm.rows;
+    if (col0 >= col1 || row0 >= row1) return;
+
+    for (int r = row0; r < row1; r++) {
+        int *rowPtr = tm.tiles + r * tm.cols;
+        for (int c = col0; c < col1; c++) {
+            rowPtr[c] = tileId;
+        }
+    }
+}
+
+void GameLib::ClearTilemap(int mapId, int tileId)
+{
+    if (mapId < 0 || mapId >= (int)_tilemaps.size()) return;
+    if (!_tilemaps[mapId].used) return;
+
+    GameTilemap &tm = _tilemaps[mapId];
+    int count = tm.cols * tm.rows;
+    for (int i = 0; i < count; i++) {
+        tm.tiles[i] = tileId;
+    }
 }
 
 void GameLib::DrawTilemap(int mapId, int x, int y, int flags)
