@@ -116,9 +116,10 @@ GameLib.h
 ### 3.2 链接库
 
 - `gdi32` — BitBlt, CreateDIBSection, CreateCompatibleDC, CreateFontW, TextOutW, SelectObject, DeleteObject, DeleteDC, GetStockObject, SetDIBitsToDevice, SetTextColor, SetBkMode, GetTextExtentPoint32W, GdiFlush（通过 LoadLibrary 动态加载）
-- `winmm` — timeGetTime, timeBeginPeriod, timeEndPeriod, timeSetEvent, timeKillEvent, PlaySoundW, mciSendStringW（通过 LoadLibrary 动态加载）
+- `winmm` — timeBeginPeriod, timeEndPeriod, timeSetEvent, timeKillEvent, PlaySoundW, mciSendStringW（通过 LoadLibrary 动态加载）
 - `gdiplus` — GdiplusStartup, GdipCreateBitmapFromStream, GdipBitmapLockBits 等（通过 LoadLibrary 动态加载，首次调用 `LoadSprite` 时懒加载）
 - `ole32` — CreateStreamOnHGlobal（通过 LoadLibrary 动态加载，随 gdiplus 一起加载）
+- `kernel32` — QueryPerformanceCounter, QueryPerformanceFrequency, Sleep, CreateEventA, WaitForSingleObject, CloseHandle（系统默认提供）
 - `user32` — 窗口管理（MSVC 自动链接，GCC 需要 `-mwindows`）
 
 > 编译时只需 `-mwindows`，不再需要 `-lgdi32 -lwinmm -lgdiplus -lole32`。
@@ -252,12 +253,14 @@ int _mouseButtons_prev[3]; // 上一帧鼠标状态（用于边沿检测）
 int _mouseWheelDelta;   // 自上次 Update() 以来累计的滚轮增量
 
 // 时间
-DWORD _timeStart;       // Open() 时的时间戳
-DWORD _timePrev;        // 上一帧时间戳
+uint64_t _timeStartCounter; // Open() 时的高精度计数器值
+uint64_t _timePrevCounter;  // 上一帧的高精度计数器值
+uint64_t _fpsTimeCounter;   // FPS 统计时间窗口起点（高精度计数器）
+uint64_t _frameStartCounter; // WaitFrame 使用的绝对帧起点/节拍基准
+uint64_t _perfFrequency;    // QueryPerformanceFrequency() 返回的计数频率
 double _deltaTime;      // 帧间隔（秒）
 double _fps;            // 当前 FPS
 double _fpsAccum;       // FPS 计数累加器
-DWORD _fpsTime;         // FPS 统计时间窗口起点
 HANDLE _timerEvent;     // 多媒体定时器触发的事件对象
 UINT _timerId;          // 多媒体定时器 ID（来自 timeSetEvent）
 
@@ -296,7 +299,8 @@ static bool _srandDone; // srand 是否已初始化
 - 窗口标题支持 UTF-8（内部转 WideChar）
 - 返回值: 0=成功, -1=窗口类注册失败, -2=创建 DC 失败, -3=创建 DIB Section 失败, -4=SelectObject 失败, -5=UTF-8 转换失败, -6=创建窗口失败, -7=尺寸超限
 - 使用 `GWLP_USERDATA` 存储 this 指针
-- 调用 `timeBeginPeriod(1)` 提高时钟精度
+- 使用 `QueryPerformanceFrequency()` / `QueryPerformanceCounter()` 建立高精度时间基准
+- 调用 `timeBeginPeriod(1)` 改善等待粒度
 - 尝试创建 1ms 周期的多媒体定时器事件（`CreateEventA + timeSetEvent`），供 `WaitFrame()` 更稳定地等待下一帧；若失败则自动回退到 `Sleep(1)`
 
 #### `bool IsClosed() const`
@@ -306,11 +310,12 @@ static bool _srandDone; // srand 是否已初始化
 1. 通过 `BitBlt` 将 DIB Section 的 `_memDC` 刷新到窗口
 2. 保存上一帧按键状态到 `_keys_prev`，鼠标状态到 `_mouseButtons_prev`，并将 `_mouseWheelDelta` 清零
 3. 派发 Windows 消息（PeekMessage 循环）
-4. 更新 deltaTime 和 FPS（内部使用 `double` 计算，FPS 每秒统计一次）
+4. 使用 `QueryPerformanceCounter()` 更新 deltaTime 和 FPS（内部使用 `double` 计算，FPS 每秒统计一次）
 5. FPS 更新时调用 `_UpdateTitleFps()` 更新标题栏显示
 
 #### `void WaitFrame(int fps)`
-- 帧率控制，计算距离上次 `Update()` 的耗时；不足时优先等待多媒体定时器事件，不可用时回退 `Sleep(1)`
+- 帧率控制，基于绝对帧边界做节拍：用 `QueryPerformanceCounter()` 维护 `_frameStartCounter`，避免把本帧工作耗时重复算进等待时间
+- 等待阶段先用多媒体定时器事件或 `Sleep(1)` 做粗等待，再在最后很短的一段时间里用 `Sleep(0)` / 短轮询收尾，减少 oversleep
 - fps <= 0 时默认按 60 处理
 
 #### `double GetDeltaTime() const`
@@ -743,7 +748,7 @@ int main() {
 1. **C-style 强制转换** — cppcheck 会报 style 警告，但对目标用户群体来说可以接受
 2. **PlayBeep 是阻塞的** — 会暂停游戏循环
 3. **单窗口** — 窗口类名固定为 "GameLibWindowClass"，同时只能有一个 GameLib 实例正常工作
-4. **WaitFrame 精度** — 优先依赖多媒体定时器事件，失败时回退 `Sleep(1)`；对教学和常规小游戏足够，但不是硬实时计时器
+4. **WaitFrame 精度** — 已改为基于绝对帧边界的 QPC 节拍，并在最后一小段时间里做更细的收尾等待；但底层仍受 Windows 调度粒度影响，不是硬实时计时器
 5. **MCI 音乐单通道** — 同时只能播放一首背景音乐（固定别名 `gamelib_music`）
 
 ### 未来改进方向
@@ -772,7 +777,8 @@ int main() {
 | 资源文件路径统一按 UTF-8 解释 | `LoadSprite*` / `PlayWAV` / `PlayMusic` 内部转宽字符，避免中文目录和文件名失效 |
 | 键盘重复过滤（bit 30） | 避免按住一个键产生大量 KeyDown 事件 |
 | FPS 每秒统计一次 | 平滑显示，避免帧间波动 |
-| `WaitFrame` 优先使用多媒体定时器事件 | 比纯 `Sleep(1)` 更稳定；若 `timeSetEvent` 不可用再回退 `Sleep(1)` |
+| 时间统计使用 `QueryPerformanceCounter` | 比 `timeGetTime` 有更高的计时分辨率 |
+| `WaitFrame` 使用绝对帧边界 + 粗等 + 短尾收尾 | 避免把本帧工作耗时重复算进等待时间，并减少最后 1ms 左右的 oversleep |
 | Color Key 用品红 (0xFFFF00FF) 而非黑色 | 黑色难以制作和判断，品红是 2D 资源常用透明色 |
 | `COLORKEY_DEFAULT` 用 `#ifndef` 保护 | 允许用户在 include 前自定义覆盖 |
 | 每个精灵独立保存 Color Key | 不同素材可使用不同透明色，同时保留 `COLORKEY_DEFAULT` 作为初始值 |

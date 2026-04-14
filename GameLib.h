@@ -128,7 +128,6 @@ typedef BOOL (WINAPI *PFN_GetTextExtentPoint32W)(HDC, LPCWSTR, int, SIZE*);
 typedef BOOL (WINAPI *PFN_GdiFlush)(void);
 
 // winmm.dll
-typedef DWORD   (WINAPI *PFN_timeGetTime)(void);
 typedef DWORD   (WINAPI *PFN_timeBeginPeriod)(UINT);
 typedef DWORD   (WINAPI *PFN_timeEndPeriod)(UINT);
 typedef UINT (WINAPI *PFN_timeSetEvent)(UINT, UINT, DWORD_PTR, DWORD_PTR, UINT);
@@ -457,12 +456,14 @@ private:
     int _mouseWheelDelta;
 
     // timing
-    DWORD _timeStart;
-    DWORD _timePrev;
+    uint64_t _timeStartCounter;
+    uint64_t _timePrevCounter;
+    uint64_t _fpsTimeCounter;
+    uint64_t _frameStartCounter;
+    uint64_t _perfFrequency;
     double _deltaTime;
     double _fps;
     double _fpsAccum;
-    DWORD _fpsTime;
     HANDLE _timerEvent;     // event signaled by multimedia timer
     UINT   _timerId;        // multimedia timer ID (from timeSetEvent)
 
@@ -615,7 +616,6 @@ static PFN_SetTextColor        _gl_SetTextColor       = NULL;
 static PFN_SetBkMode           _gl_SetBkMode          = NULL;
 static PFN_GetTextExtentPoint32W _gl_GetTextExtentPoint32W = NULL;
 static PFN_GdiFlush              _gl_GdiFlush              = NULL;
-static PFN_timeGetTime         _gl_timeGetTime        = NULL;
 static PFN_timeBeginPeriod     _gl_timeBeginPeriod    = NULL;
 static PFN_timeEndPeriod       _gl_timeEndPeriod      = NULL;
 static PFN_timeSetEvent        _gl_timeSetEvent       = NULL;
@@ -624,6 +624,14 @@ static PFN_PlaySoundW          _gl_PlaySoundW         = NULL;
 static PFN_mciSendStringW      _gl_mciSendStringW     = NULL;
 
 static int _gamelib_apis_loaded = 0;
+
+static uint64_t _gamelib_query_performance_counter()
+{
+    LARGE_INTEGER counter;
+    counter.QuadPart = 0;
+    QueryPerformanceCounter(&counter);
+    return (uint64_t)counter.QuadPart;
+}
 
 static int _gamelib_load_apis()
 {
@@ -652,7 +660,6 @@ static int _gamelib_load_apis()
     _gl_GetTextExtentPoint32W = (PFN_GetTextExtentPoint32W)GetProcAddress(hGdi32, "GetTextExtentPoint32W");
     _gl_GdiFlush              = (PFN_GdiFlush)GetProcAddress(hGdi32, "GdiFlush");
 
-    _gl_timeGetTime       = (PFN_timeGetTime)GetProcAddress(hWinmm, "timeGetTime");
     _gl_timeBeginPeriod   = (PFN_timeBeginPeriod)GetProcAddress(hWinmm, "timeBeginPeriod");
     _gl_timeEndPeriod     = (PFN_timeEndPeriod)GetProcAddress(hWinmm, "timeEndPeriod");
     _gl_timeSetEvent      = (PFN_timeSetEvent)GetProcAddress(hWinmm, "timeSetEvent");
@@ -665,7 +672,6 @@ static int _gamelib_load_apis()
         !_gl_CreateDIBSection || !_gl_SelectObject || !_gl_DeleteObject ||
         !_gl_BitBlt || !_gl_CreateFontW || !_gl_TextOutW ||
         !_gl_SetTextColor || !_gl_SetBkMode || !_gl_GetTextExtentPoint32W ||
-        !_gl_timeGetTime ||
         !_gl_timeBeginPeriod  || !_gl_timeEndPeriod ||
         !_gl_PlaySoundW       || !_gl_mciSendStringW) {
         // NULL out all pointers to prevent dangling state
@@ -676,7 +682,7 @@ static int _gamelib_load_apis()
         _gl_CreateFontW = NULL; _gl_TextOutW = NULL;
         _gl_SetTextColor = NULL; _gl_SetBkMode = NULL;
         _gl_GetTextExtentPoint32W = NULL; _gl_GdiFlush = NULL;
-        _gl_timeGetTime = NULL; _gl_timeBeginPeriod = NULL;
+        _gl_timeBeginPeriod = NULL;
         _gl_timeEndPeriod = NULL; _gl_timeSetEvent = NULL;
         _gl_timeKillEvent = NULL; _gl_PlaySoundW = NULL;
         _gl_mciSendStringW = NULL;
@@ -890,12 +896,14 @@ GameLib::GameLib()
     memset(_mouseButtons, 0, sizeof(_mouseButtons));
     memset(_mouseButtons_prev, 0, sizeof(_mouseButtons_prev));
     _mouseWheelDelta = 0;
-    _timeStart = 0;
-    _timePrev = 0;
+    _timeStartCounter = 0;
+    _timePrevCounter = 0;
+    _fpsTimeCounter = 0;
+    _frameStartCounter = 0;
+    _perfFrequency = 0;
     _deltaTime = 0.0;
     _fps = 0.0;
     _fpsAccum = 0.0;
-    _fpsTime = 0;
     _timerEvent = NULL;
     _timerId = 0;
     memset(_bmi_data, 0, sizeof(_bmi_data));
@@ -1259,11 +1267,17 @@ int GameLib::Open(int width, int height, const char *title, bool center)
     ShowWindow(_hwnd, SW_SHOW);
     UpdateWindow(_hwnd);
 
-    // Initialize time
+    // Initialize high-resolution timing.
+    LARGE_INTEGER perfFrequency;
+    perfFrequency.QuadPart = 0;
+    QueryPerformanceFrequency(&perfFrequency);
+    _perfFrequency = (perfFrequency.QuadPart > 0) ? (uint64_t)perfFrequency.QuadPart : 1;
+
     _gl_timeBeginPeriod(1);
-    _timeStart = _gl_timeGetTime();
-    _timePrev = _timeStart;
-    _fpsTime = _timeStart;
+    _timeStartCounter = _gamelib_query_performance_counter();
+    _timePrevCounter = _timeStartCounter;
+    _fpsTimeCounter = _timeStartCounter;
+    _frameStartCounter = _timeStartCounter;
     _fpsAccum = 0.0;
     _fps = 0.0;
     _deltaTime = 0.0;
@@ -1318,20 +1332,20 @@ void GameLib::Update()
     // Dispatch messages
     _DispatchMessages();
 
-    // Update time
-    DWORD now = _gl_timeGetTime();
-    int32_t delta = (int32_t)(now - _timePrev);
-    if (delta < 0) delta = 0;
-    _deltaTime = (double)delta / 1000.0;
-    _timePrev = now;
+    // Update time with QueryPerformanceCounter.
+    uint64_t now = _gamelib_query_performance_counter();
+    if (now < _timePrevCounter) now = _timePrevCounter;
+    uint64_t deltaCounter = now - _timePrevCounter;
+    _deltaTime = (double)deltaCounter / (double)_perfFrequency;
+    _timePrevCounter = now;
 
     // Update FPS
     _fpsAccum += 1.0;
-    int32_t fpsDelta = (int32_t)(now - _fpsTime);
-    if (fpsDelta >= 1000) {
-        _fps = _fpsAccum * 1000.0 / (double)fpsDelta;
+    uint64_t fpsDelta = now - _fpsTimeCounter;
+    if (fpsDelta >= _perfFrequency) {
+        _fps = _fpsAccum * (double)_perfFrequency / (double)fpsDelta;
         _fpsAccum = 0.0;
-        _fpsTime = now;
+        _fpsTimeCounter = now;
         _UpdateTitleFps();
     }
 }
@@ -1343,18 +1357,40 @@ void GameLib::Update()
 void GameLib::WaitFrame(int fps)
 {
     if (fps <= 0) fps = 60;
-    DWORD frameTime = 1000 / fps;
+    if (_perfFrequency == 0) return;
+
+    uint64_t frameTime = (uint64_t)((double)_perfFrequency / (double)fps);
+    if (frameTime == 0) frameTime = 1;
+
+    if (_frameStartCounter == 0) {
+        _frameStartCounter = _gamelib_query_performance_counter();
+    }
+
+    uint64_t target = _frameStartCounter + frameTime;
+    uint64_t now = _gamelib_query_performance_counter();
+
+    if (now >= target) {
+        _frameStartCounter = now;
+        return;
+    }
+
     for (;;) {
-        DWORD now = _gl_timeGetTime();
-        int32_t elapsed = (int32_t)(now - _timePrev);
-        if (elapsed < 0) elapsed = 0;
-        if ((DWORD)elapsed >= frameTime) break;
-        if (_timerEvent && _timerId) {
-            WaitForSingleObject(_timerEvent, 2);
-        } else {
+        now = _gamelib_query_performance_counter();
+        if (now >= target) break;
+
+        uint64_t remaining = target - now;
+        double remainingMs = (double)remaining * 1000.0 / (double)_perfFrequency;
+
+        if (_timerEvent && _timerId && remainingMs > 1.5) {
+            WaitForSingleObject(_timerEvent, 1);
+        } else if (remainingMs > 1.5) {
             Sleep(1);
+        } else if (remainingMs > 0.3) {
+            Sleep(0);
         }
     }
+
+    _frameStartCounter = target;
 }
 
 
@@ -1365,7 +1401,9 @@ double GameLib::GetDeltaTime() const { return _deltaTime; }
 double GameLib::GetFPS() const { return _fps; }
 double GameLib::GetTime() const
 {
-    return (double)(_gl_timeGetTime() - _timeStart) / 1000.0;
+    uint64_t now = _gamelib_query_performance_counter();
+    if (now < _timeStartCounter) now = _timeStartCounter;
+    return (double)(now - _timeStartCounter) / (double)_perfFrequency;
 }
 int GameLib::GetWidth() const { return _width; }
 int GameLib::GetHeight() const { return _height; }
