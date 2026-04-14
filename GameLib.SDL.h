@@ -3088,8 +3088,10 @@ void GameLib::DrawTilemap(int mapId, int x, int y, int flags)
 
     GameSprite &tset = _sprites[tsId];
     int ts = tm.tileSize;
-    int tsCols = tm.tilesetCols;
-    int tileCount = tm.tilesetTileCount;
+    int tsCols = tset.width / ts;
+    int tileCount = _GetTilesetTileCount(tsId, ts);
+    tm.tilesetCols = tsCols;
+    tm.tilesetTileCount = tileCount;
     if (tsCols <= 0 || tileCount <= 0) return;
 
     int col0 = (-x) / ts;
