@@ -50,7 +50,7 @@
 #endif
 
 #define GAMELIB_SDL_VERSION_MAJOR 0
-#define GAMELIB_SDL_VERSION_MINOR 2
+#define GAMELIB_SDL_VERSION_MINOR 3
 #define GAMELIB_SDL_VERSION_PATCH 0
 
 #include <stdint.h>
@@ -172,6 +172,12 @@ typedef struct Mix_Music Mix_Music;
 #define MOUSE_RIGHT   1
 #define MOUSE_MIDDLE  2
 
+#define MESSAGEBOX_OK           0
+#define MESSAGEBOX_YESNO        1
+#define MESSAGEBOX_RESULT_OK    1
+#define MESSAGEBOX_RESULT_YES   2
+#define MESSAGEBOX_RESULT_NO    3
+
 #define SPRITE_FLIP_H     1
 #define SPRITE_FLIP_V     2
 #define SPRITE_COLORKEY   4
@@ -225,6 +231,8 @@ public:
     int GetHeight() const;
     void SetTitle(const char *title);
     void ShowFps(bool show);
+    void ShowMouse(bool show);
+    int ShowMessage(const char *text, const char *title = NULL, int buttons = MESSAGEBOX_OK);
 
     void Clear(uint32_t color = COLOR_BLACK);
     void SetPixel(int x, int y, uint32_t color);
@@ -235,6 +243,8 @@ public:
     void FillRect(int x, int y, int w, int h, uint32_t color);
     void DrawCircle(int cx, int cy, int r, uint32_t color);
     void FillCircle(int cx, int cy, int r, uint32_t color);
+    void DrawEllipse(int cx, int cy, int rx, int ry, uint32_t color);
+    void FillEllipse(int cx, int cy, int rx, int ry, uint32_t color);
     void DrawTriangle(int x1, int y1, int x2, int y2, int x3, int y3, uint32_t color);
     void FillTriangle(int x1, int y1, int x2, int y2, int x3, int y3, uint32_t color);
 
@@ -245,6 +255,8 @@ public:
 
     void DrawTextFont(int x, int y, const char *text, uint32_t color, const char *fontName, int fontSize);
     void DrawTextFont(int x, int y, const char *text, uint32_t color, int fontSize);
+    void DrawPrintfFont(int x, int y, uint32_t color, const char *fontName, int fontSize, const char *fmt, ...);
+    void DrawPrintfFont(int x, int y, uint32_t color, int fontSize, const char *fmt, ...);
     int GetTextWidthFont(const char *text, const char *fontName, int fontSize);
     int GetTextWidthFont(const char *text, int fontSize);
     int GetTextHeightFont(const char *text, const char *fontName, int fontSize);
@@ -340,6 +352,7 @@ private:
     bool _closing;
     bool _active;
     bool _showFps;
+    bool _mouseVisible;
     bool _focused;
     bool _minimized;
     bool _sdlReady;
@@ -576,6 +589,39 @@ static int _gamelib_floor_div(int value, int divisor)
     return q;
 }
 
+static int _gamelib_round_to_int(double value)
+{
+    if (value >= 0.0) return (int)(value + 0.5);
+    return (int)(value - 0.5);
+}
+
+static uint32_t _gamelib_alpha_blend(uint32_t dst, uint32_t src)
+{
+    uint32_t sa = COLOR_GET_A(src);
+    if (sa == 0) return dst;
+    if (sa == 255) return src;
+
+    uint32_t ia = 255 - sa;
+    uint32_t or_ = (sa * COLOR_GET_R(src) + ia * COLOR_GET_R(dst)) / 255;
+    uint32_t og = (sa * COLOR_GET_G(src) + ia * COLOR_GET_G(dst)) / 255;
+    uint32_t ob = (sa * COLOR_GET_B(src) + ia * COLOR_GET_B(dst)) / 255;
+    return COLOR_ARGB(255, or_, og, ob);
+}
+
+static void _gamelib_blend_pixel(uint32_t *dst, uint32_t src)
+{
+    if (!dst) return;
+
+    uint32_t sa = COLOR_GET_A(src);
+    if (sa == 0) return;
+    if (sa == 255) {
+        *dst = src;
+        return;
+    }
+
+    *dst = _gamelib_alpha_blend(*dst, src);
+}
+
 static bool _gamelib_rw_read_text_line(SDL_RWops *rw, std::string &line)
 {
     line.clear();
@@ -759,6 +805,7 @@ GameLib::GameLib()
     _closing = false;
     _active = true;
     _showFps = false;
+    _mouseVisible = true;
     _focused = true;
     _minimized = false;
     _sdlReady = false;
@@ -800,6 +847,10 @@ GameLib::~GameLib()
 {
     StopMusic();
     StopWAV();
+
+    if (_sdlReady || SDL_WasInit(SDL_INIT_VIDEO)) {
+        SDL_ShowCursor(SDL_ENABLE);
+    }
 
 #if GAMELIB_SDL_HAS_TTF
     for (size_t i = 0; i < _fontCache.size(); i++) {
@@ -1206,19 +1257,7 @@ void GameLib::_BlendSurfaceToFramebuffer(int x, int y, SDL_Surface *surface)
         const uint32_t *srcRow = (const uint32_t*)((const unsigned char*)surface->pixels + (py - y) * surface->pitch);
         uint32_t *dstRow = _framebuffer + py * _width;
         for (int px = x0; px < x1; px++) {
-            uint32_t c = srcRow[px - x];
-            uint32_t sa = COLOR_GET_A(c);
-            if (sa == 0) continue;
-            if (sa == 255) {
-                dstRow[px] = c;
-            } else {
-                uint32_t dc = dstRow[px];
-                uint32_t ia = 255 - sa;
-                uint32_t or_ = (sa * COLOR_GET_R(c) + ia * COLOR_GET_R(dc)) / 255;
-                uint32_t og = (sa * COLOR_GET_G(c) + ia * COLOR_GET_G(dc)) / 255;
-                uint32_t ob = (sa * COLOR_GET_B(c) + ia * COLOR_GET_B(dc)) / 255;
-                dstRow[px] = COLOR_ARGB(255, or_, og, ob);
-            }
+            _gamelib_blend_pixel(dstRow + px, srcRow[px - x]);
         }
     }
 }
@@ -1333,6 +1372,7 @@ int GameLib::Open(int width, int height, const char *title, bool center)
     _fps = 0.0;
     _fpsAccum = 0.0;
     _SyncInputState();
+    SDL_ShowCursor(_mouseVisible ? SDL_ENABLE : SDL_DISABLE);
     _UpdateTitleFps();
 
     return 0;
@@ -1481,6 +1521,77 @@ void GameLib::ShowFps(bool show)
     _UpdateTitleFps();
 }
 
+void GameLib::ShowMouse(bool show)
+{
+    _mouseVisible = show;
+    if (_sdlReady || SDL_WasInit(SDL_INIT_VIDEO)) {
+        SDL_ShowCursor(_mouseVisible ? SDL_ENABLE : SDL_DISABLE);
+    }
+}
+
+int GameLib::ShowMessage(const char *text, const char *title, int buttons)
+{
+    const char *messageText = text ? text : "";
+    const char *messageTitle = title;
+    if (!messageTitle || !messageTitle[0]) {
+        messageTitle = _title.empty() ? "GameLib" : _title.c_str();
+    }
+
+    bool startedVideo = false;
+    if (SDL_WasInit(SDL_INIT_VIDEO) == 0) {
+        SDL_SetMainReady();
+        if (SDL_Init(SDL_INIT_VIDEO) == 0) {
+            startedVideo = true;
+        }
+    }
+
+    bool restoreMouseHidden = !_mouseVisible && (SDL_WasInit(SDL_INIT_VIDEO) != 0);
+    if (restoreMouseHidden) {
+        SDL_ShowCursor(SDL_ENABLE);
+    }
+
+    int result = (buttons == MESSAGEBOX_YESNO) ? MESSAGEBOX_RESULT_NO : MESSAGEBOX_RESULT_OK;
+    SDL_Window *parentWindow = _window;
+
+    if (buttons == MESSAGEBOX_YESNO) {
+        SDL_MessageBoxButtonData buttonData[2];
+        memset(buttonData, 0, sizeof(buttonData));
+        buttonData[0].flags = SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT;
+        buttonData[0].buttonid = MESSAGEBOX_RESULT_YES;
+        buttonData[0].text = "Yes";
+        buttonData[1].flags = SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT;
+        buttonData[1].buttonid = MESSAGEBOX_RESULT_NO;
+        buttonData[1].text = "No";
+
+        SDL_MessageBoxData boxData;
+        memset(&boxData, 0, sizeof(boxData));
+        boxData.flags = SDL_MESSAGEBOX_INFORMATION;
+        boxData.window = parentWindow;
+        boxData.title = messageTitle;
+        boxData.message = messageText;
+        boxData.numbuttons = 2;
+        boxData.buttons = buttonData;
+
+        int buttonId = MESSAGEBOX_RESULT_NO;
+        if (SDL_ShowMessageBox(&boxData, &buttonId) == 0) {
+            if (buttonId == MESSAGEBOX_RESULT_YES || buttonId == MESSAGEBOX_RESULT_NO) {
+                result = buttonId;
+            }
+        }
+    } else {
+        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION, messageTitle, messageText, parentWindow);
+    }
+
+    if (restoreMouseHidden) {
+        SDL_ShowCursor(SDL_DISABLE);
+    }
+    if (startedVideo) {
+        SDL_QuitSubSystem(SDL_INIT_VIDEO);
+    }
+
+    return result;
+}
+
 void GameLib::Clear(uint32_t color)
 {
     if (!_framebuffer) return;
@@ -1492,7 +1603,7 @@ void GameLib::SetPixel(int x, int y, uint32_t color)
 {
     if (!_framebuffer) return;
     if (x >= 0 && x < _width && y >= 0 && y < _height) {
-        _framebuffer[y * _width + x] = color;
+        _gamelib_blend_pixel(_framebuffer + y * _width + x, color);
     }
 }
 
@@ -1507,7 +1618,7 @@ uint32_t GameLib::GetPixel(int x, int y) const
 
 void GameLib::_SetPixelFast(int x, int y, uint32_t color)
 {
-    _framebuffer[y * _width + x] = color;
+    _gamelib_blend_pixel(_framebuffer + y * _width + x, color);
 }
 
 void GameLib::DrawLine(int x1, int y1, int x2, int y2, uint32_t color)
@@ -1534,8 +1645,15 @@ void GameLib::_DrawHLine(int x1, int x2, int y, uint32_t color)
     if (x1 > x2) { int t = x1; x1 = x2; x2 = t; }
     if (x1 < 0) x1 = 0;
     if (x2 >= _width) x2 = _width - 1;
-    for (int x = x1; x <= x2; x++) {
-        _SetPixelFast(x, y, color);
+    uint32_t *row = _framebuffer + y * _width;
+    if (COLOR_GET_A(color) == 255) {
+        for (int x = x1; x <= x2; x++) {
+            row[x] = color;
+        }
+    } else {
+        for (int x = x1; x <= x2; x++) {
+            _gamelib_blend_pixel(row + x, color);
+        }
     }
 }
 
@@ -1564,10 +1682,16 @@ void GameLib::FillRect(int x, int y, int w, int h, uint32_t color)
     if (y2 > _height) y2 = _height;
     if (x1 >= x2 || y1 >= y2) return;
 
+    bool opaque = COLOR_GET_A(color) == 255;
+
     for (int j = y1; j < y2; j++) {
         uint32_t *row = _framebuffer + j * _width;
         for (int i = x1; i < x2; i++) {
-            row[i] = color;
+            if (opaque) {
+                row[i] = color;
+            } else {
+                _gamelib_blend_pixel(row + i, color);
+            }
         }
     }
 }
@@ -1615,6 +1739,67 @@ void GameLib::FillCircle(int cx, int cy, int r, uint32_t color)
             y--;
         }
         x++;
+    }
+}
+
+void GameLib::DrawEllipse(int cx, int cy, int rx, int ry, uint32_t color)
+{
+    if (rx < 0 || ry < 0) return;
+    if (rx == 0 && ry == 0) {
+        SetPixel(cx, cy, color);
+        return;
+    }
+    if (rx == 0) {
+        DrawLine(cx, cy - ry, cx, cy + ry, color);
+        return;
+    }
+    if (ry == 0) {
+        DrawLine(cx - rx, cy, cx + rx, cy, color);
+        return;
+    }
+
+    double rx2 = (double)rx * (double)rx;
+    double ry2 = (double)ry * (double)ry;
+
+    for (int y = -ry; y <= ry; y++) {
+        double ratio = 1.0 - ((double)y * (double)y) / ry2;
+        if (ratio < 0.0) ratio = 0.0;
+        int x = _gamelib_round_to_int(sqrt(ratio) * (double)rx);
+        SetPixel(cx - x, cy + y, color);
+        SetPixel(cx + x, cy + y, color);
+    }
+
+    for (int x = -rx; x <= rx; x++) {
+        double ratio = 1.0 - ((double)x * (double)x) / rx2;
+        if (ratio < 0.0) ratio = 0.0;
+        int y = _gamelib_round_to_int(sqrt(ratio) * (double)ry);
+        SetPixel(cx + x, cy - y, color);
+        SetPixel(cx + x, cy + y, color);
+    }
+}
+
+void GameLib::FillEllipse(int cx, int cy, int rx, int ry, uint32_t color)
+{
+    if (rx < 0 || ry < 0) return;
+    if (rx == 0 && ry == 0) {
+        SetPixel(cx, cy, color);
+        return;
+    }
+    if (rx == 0) {
+        DrawLine(cx, cy - ry, cx, cy + ry, color);
+        return;
+    }
+    if (ry == 0) {
+        DrawLine(cx - rx, cy, cx + rx, cy, color);
+        return;
+    }
+
+    double ry2 = (double)ry * (double)ry;
+    for (int y = -ry; y <= ry; y++) {
+        double ratio = 1.0 - ((double)y * (double)y) / ry2;
+        if (ratio < 0.0) ratio = 0.0;
+        int x = _gamelib_round_to_int(sqrt(ratio) * (double)rx);
+        _DrawHLine(cx - x, cx + x, cy + y, color);
     }
 }
 
@@ -1785,6 +1970,28 @@ void GameLib::DrawTextFont(int x, int y, const char *text, uint32_t color, const
 void GameLib::DrawTextFont(int x, int y, const char *text, uint32_t color, int fontSize)
 {
     DrawTextFont(x, y, text, color, GAMELIB_SDL_DEFAULT_FONT, fontSize);
+}
+
+void GameLib::DrawPrintfFont(int x, int y, uint32_t color, const char *fontName, int fontSize, const char *fmt, ...)
+{
+    char buf[1024];
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(buf, sizeof(buf), fmt, args);
+    va_end(args);
+    buf[sizeof(buf) - 1] = '\0';
+    DrawTextFont(x, y, buf, color, fontName, fontSize);
+}
+
+void GameLib::DrawPrintfFont(int x, int y, uint32_t color, int fontSize, const char *fmt, ...)
+{
+    char buf[1024];
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(buf, sizeof(buf), fmt, args);
+    va_end(args);
+    buf[sizeof(buf) - 1] = '\0';
+    DrawTextFont(x, y, buf, color, GAMELIB_SDL_DEFAULT_FONT, fontSize);
 }
 
 int GameLib::GetTextWidthFont(const char *text, const char *fontName, int fontSize)
@@ -2046,20 +2253,8 @@ void GameLib::_DrawSpriteAreaFast(int id, int x, int y, int sx, int sy, int sw, 
                 uint32_t c = srcRow[srcX];
                 if (useColorKey && c == colorKey) continue;
 
-                uint32_t sa = COLOR_GET_A(c);
-                if (sa == 0) continue;
-
                 int dx = x + localX;
-                if (sa == 255) {
-                    dstRow[dx] = c;
-                } else {
-                    uint32_t dc = dstRow[dx];
-                    uint32_t ia = 255 - sa;
-                    uint32_t or_ = (sa * COLOR_GET_R(c) + ia * COLOR_GET_R(dc)) / 255;
-                    uint32_t og = (sa * COLOR_GET_G(c) + ia * COLOR_GET_G(dc)) / 255;
-                    uint32_t ob = (sa * COLOR_GET_B(c) + ia * COLOR_GET_B(dc)) / 255;
-                    dstRow[dx] = COLOR_ARGB(255, or_, og, ob);
-                }
+                _gamelib_blend_pixel(dstRow + dx, c);
             }
         }
     } else if (useColorKey) {
@@ -2083,7 +2278,7 @@ void GameLib::_DrawSpriteAreaFast(int id, int x, int y, int sx, int sy, int sw, 
 
             for (int localX = localX0; localX < localX1; localX++, srcX += srcXStep) {
                 uint32_t c = srcRow[srcX];
-                if (COLOR_GET_A(c) > 0) dstRow[x + localX] = c;
+                dstRow[x + localX] = c;
             }
         }
     }
@@ -2137,15 +2332,10 @@ void GameLib::_DrawSpriteAreaScaled(int id, int x, int y, int sx, int sy, int sw
             uint32_t sa = COLOR_GET_A(c);
             if (sa == 0) continue;
 
-            if (!useAlpha || sa == 255) {
+            if (!useAlpha) {
                 dstRow[dx] = c;
             } else {
-                uint32_t dc = dstRow[dx];
-                uint32_t ia = 255 - sa;
-                uint32_t or_ = (sa * COLOR_GET_R(c) + ia * COLOR_GET_R(dc)) / 255;
-                uint32_t og = (sa * COLOR_GET_G(c) + ia * COLOR_GET_G(dc)) / 255;
-                uint32_t ob = (sa * COLOR_GET_B(c) + ia * COLOR_GET_B(dc)) / 255;
-                dstRow[dx] = COLOR_ARGB(255, or_, og, ob);
+                _gamelib_blend_pixel(dstRow + dx, c);
             }
         }
     }

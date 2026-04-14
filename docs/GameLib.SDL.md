@@ -44,7 +44,7 @@ int main() {
 ### 1.3 保持软件渲染核心
 
 - 库内部仍以 `uint32_t*` ARGB 帧缓冲作为统一绘制目标。
-- 线段、圆、三角形、精灵绘制、Tilemap 绘制、Alpha 混合等逻辑继续由库自行实现。
+- 线段、圆、椭圆、三角形、精灵绘制、Tilemap 绘制、Alpha 混合等逻辑继续由库自行实现。
 - SDL 主要负责：窗口、事件、纹理提交、图片解码、TTF 字体、音频输出。
 
 ### 1.4 面向初学者，而不是暴露 SDL 细节
@@ -273,6 +273,7 @@ SDL 平台层
 这样可以保证：
 
 - 图元、精灵、字体都共享同一像素语义。
+- `SetPixel` 与线段/矩形/圆/椭圆/三角形都使用同一套 source-over Alpha 混合规则。
 - 后续 `GetPixel()`、Alpha 混合、截图、碰撞辅助不会因为“部分内容是直接渲染到 GPU”而失真。
 
 ---
@@ -326,7 +327,7 @@ GameLib.SDL.h
 
 - `Open` / `IsClosed` / `Update` / `WaitFrame`
 - `Clear` / `SetPixel` / `GetPixel`
-- `DrawLine` / `DrawRect` / `FillRect` / `DrawCircle` / `FillCircle` / `DrawTriangle` / `FillTriangle`
+- `DrawLine` / `DrawRect` / `FillRect` / `DrawCircle` / `FillCircle` / `DrawEllipse` / `FillEllipse` / `DrawTriangle` / `FillTriangle`
 - `DrawText` / `DrawNumber` / `DrawTextScale` / `DrawPrintf`
 - `CreateSprite` / `LoadSpriteBMP` / `LoadSprite` / `FreeSprite`
 - `DrawSprite` / `DrawSpriteEx` / `DrawSpriteRegion` / `DrawSpriteRegionEx`
@@ -355,6 +356,11 @@ GameLib.SDL.h
   - 对纯家族名（如 `Arial`、`Microsoft YaHei`）采用 **best effort** 解析，不保证所有平台一致
 - 不额外引入平台特定字体发现 API 作为首版硬依赖。
 
+#### `DrawPrintfFont`
+
+- 保持与 Windows 版一致的 API 形状。
+- SDL 版内部先用 `vsnprintf` 生成 UTF-8 文本，再复用 `DrawTextFont()` 的渲染路径。
+
 #### `PlayBeep`
 
 - Windows 版调用系统 `Beep`。
@@ -369,6 +375,18 @@ GameLib.SDL.h
 
 - SDL 版通过 `SDL_SetWindowTitle` 更新标题栏。
 - 在不同平台窗口管理器中，标题刷新时机与显示样式可能略有差异。
+
+#### `ShowMouse`
+
+- SDL 版通过 `SDL_ShowCursor()` 控制鼠标光标显示状态。
+- 库内部缓存 `_mouseVisible`，因此在 `Open()` 前调用也能在窗口创建后自动生效。
+- SDL 的鼠标光标显示是进程级语义，因此析构时应恢复为可见，避免把宿主环境留在隐藏光标状态。
+
+#### `ShowMessage`
+
+- SDL 版使用 `SDL_ShowSimpleMessageBox()` 或 `SDL_ShowMessageBox()` 实现，按钮布局与 Windows 版保持 `MESSAGEBOX_OK` / `MESSAGEBOX_YESNO` 两档。
+- 若当前尚未初始化视频子系统，允许临时初始化 `SDL_INIT_VIDEO` 仅用于显示消息框。
+- 若当前窗口处于隐藏鼠标状态，显示对话框期间应临时恢复鼠标可见，避免 `YES/NO` 对话框在无光标时难以操作。
 
 ### 6.3 键盘常量策略
 
@@ -480,6 +498,7 @@ SDL 版输入系统要求：
 - 鼠标维持 `MOUSE_LEFT` / `MOUSE_RIGHT` / `MOUSE_MIDDLE` 三键模型。
 - 滚轮增量累加到 `_mouseWheelDelta`，在每次 `Update()` 开始时清零。
 - `_active` 由窗口焦点、最小化状态等 SDL window event 共同决定。
+- `ShowMouse()` 的目标状态缓存在 `_mouseVisible` 中，并在窗口存在时同步到 `SDL_ShowCursor()`。
 
 需要处理的 SDL 事件至少包括：
 
@@ -501,6 +520,12 @@ SDL 版输入系统要求：
 - 首版不暴露文本输入 IME 接口。
 - 首版不处理游戏手柄。
 
+### 7.6 ShowMouse / ShowMessage 设计约束
+
+- `ShowMouse(bool)` 只负责“显示/隐藏鼠标”，不引入相对鼠标模式，也不锁定鼠标位置。
+- `ShowMessage(...)` 只暴露两种按钮布局，保持与 Win32 主线一致的初学者 API 复杂度。
+- `ShowMessage(...)` 的返回值统一映射到 `MESSAGEBOX_RESULT_OK`、`MESSAGEBOX_RESULT_YES`、`MESSAGEBOX_RESULT_NO`，避免把 SDL 按钮 ID 泄露到公开 API。
+
 ---
 
 ## 8. 文字渲染设计
@@ -518,6 +543,11 @@ SDL 版输入系统要求：
 - `SDL_ttf` 把 UTF-8 文本渲染为临时 `SDL_Surface`
 - 将 surface 转换为 `SDL_PIXELFORMAT_ARGB8888`
 - 再逐像素 Alpha 混合写入 `_framebuffer`
+
+`DrawPrintfFont()` 复用同一路径：
+
+- 先格式化为临时 UTF-8 字符串
+- 再调用 `DrawTextFont()` 完成字体绘制
 
 不能采用的方式：
 
@@ -649,6 +679,8 @@ SDL 版仍保留 `LoadSpriteBMP()`，目的有二：
 - 继续保留无缩放快路径与缩放路径分离的设计。
 - 不依赖 SDL 的 `SDL_RenderCopyEx` 做精灵翻转或缩放。
 - 所有像素混合仍由库自己对 `_framebuffer` 完成。
+- 未启用 `SPRITE_ALPHA` / `SPRITE_COLORKEY` 时，非缩放路径直接覆盖目标像素；无翻转时优先逐行 `memcpy`，带翻转时仍逐像素直写，不检查源像素 alpha 是否为 0。
+- 只有显式传入 `SPRITE_ALPHA` 或 `SPRITE_COLORKEY` 时，源像素 alpha / Color Key 才参与透明语义。
 
 ---
 
@@ -760,6 +792,7 @@ SDL_Texture *_frameTexture;
 bool _closing;
 bool _active;
 bool _showFps;
+bool _mouseVisible;
 std::string _title;
 int _width;
 int _height;
@@ -863,8 +896,9 @@ static bool _srandDone;
 - `GetDeltaTime` / `GetFPS` / `GetTime`
 - 键盘鼠标输入
 - `Clear` / `SetPixel` / `GetPixel`
-- `DrawLine` / `DrawRect` / `FillRect` / `DrawCircle` / `FillCircle`
+- `DrawLine` / `DrawRect` / `FillRect` / `DrawCircle` / `FillCircle` / `DrawEllipse` / `FillEllipse`
 - `DrawText` / `DrawNumber` / `DrawTextScale` / `DrawPrintf`
+- `ShowMouse`
 
 目标：
 
@@ -887,15 +921,17 @@ static bool _srandDone;
 ### 阶段 3：字体与音频（已完成）
 
 - `DrawTextFont`
+- `DrawPrintfFont`
 - `GetTextWidthFont` / `GetTextHeightFont`
 - `PlayWAV`
 - `PlayMusic`
 - `PlayBeep`
+- `ShowMessage`
 
 目标：
 
 - 补齐跨平台版本最容易有差异的部分。
-- 当前状态：已完成。`DrawTextFont`、字体测量、best-effort 字体解析、`PlayWAV`、`PlayMusic`、`PlayBeep` 都已落地。
+- 当前状态：已完成。`DrawTextFont` / `DrawPrintfFont`、字体测量、best-effort 字体解析、`PlayWAV`、`PlayMusic`、`PlayBeep`、`ShowMessage` 都已落地。
 - 回归入口：`tests/sdldemo2.cpp`、`tests/sdldemo3.cpp`、`tests/sdldemo4.cpp`。
 
 ### 阶段 4：文档与示例迁移（当前阶段目标已完成）
@@ -954,6 +990,7 @@ static bool _srandDone;
 
 - 选择独立 `GameLib.SDL.h`，是为了避免把现有 `GameLib.h` 变成一个充满平台分支和依赖分支的巨型头文件。
 - 选择继续保留软件帧缓冲，是为了最大化复用现有图元、精灵、Tilemap、像素混合逻辑，也让 SDL 版与 Win32 版更容易保持语义一致。
+- 无 Alpha 且无 ColorKey 的 sprite/tilemap 快路径继续保持“直接覆盖目标像素”的规则，只有显式传入 `SPRITE_ALPHA` / `SPRITE_COLORKEY` 时才启用透明语义；这样 SDL 版与 Win32 版的默认 sprite 行为一致。
 - 选择 `SDL_mixer` 而不是纯 `SDL_Audio`，是为了让 `PlayWAV` / `PlayMusic` 这类高层 API 更快落地。
 - 字体部分不把“系统字体家族名跨平台精确解析”列为首版硬要求，是为了控制复杂度，避免一开始就把 Win32 / macOS / Linux 的字体发现机制都卷进来。
 - Windows DPI 默认选择 `unaware`，不是因为它技术上更先进，而是因为它更符合教学场景：同样一个 `800x600` 示例换到高分屏机器上不会显得过小。

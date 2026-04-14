@@ -81,7 +81,7 @@ GameLib.h
 │       ├── 帧缓冲操作 (Clear, SetPixel, GetPixel)
 │       ├── 图形绘制 (Line, Rect, Circle, Triangle)
 │       ├── 文字渲染 (DrawText, DrawNumber, DrawTextScale, DrawPrintf)
-│       ├── 字体文字渲染 (DrawTextFont, GetTextWidthFont, GetTextHeightFont)
+│       ├── 字体文字渲染 (DrawTextFont, DrawPrintfFont, GetTextWidthFont, GetTextHeightFont)
 │       ├── 精灵系统 (Create, Load, Free, Draw, Region, Scale, Frame)
 │       ├── 输入系统 (Key, Mouse, Released, Wheel, Active)
 │       ├── 声音 (Beep, WAV, Music/MCI)
@@ -230,6 +230,7 @@ HWND _hwnd;
 bool _closing;          // 窗口是否关闭
 bool _active;           // 窗口是否激活
 bool _showFps;          // 是否在标题栏显示 FPS
+bool _mouseVisible;     // 是否显示窗口客户区内的鼠标光标
 std::string _title;
 int _width, _height;    // 客户区尺寸
 
@@ -339,6 +340,17 @@ static bool _srandDone; // srand 是否已初始化
 - `show=false` 时，恢复为原始标题（调用 `SetTitle` 恢复）
 - 适用于开发调试，方便观察帧率
 
+#### `void ShowMouse(bool show)`
+- 控制窗口客户区内的鼠标光标显示/隐藏
+- Win32 主线通过 `WM_SETCURSOR` + `_mouseVisible` 保持客户区内光标状态，不依赖全局 `ShowCursor` 引用计数
+- 在窗口创建前调用也有效：状态会在下一次 `Open()` 时自动应用
+
+#### `int ShowMessage(const char *text, const char *title = NULL, int buttons = MESSAGEBOX_OK)`
+- 弹出消息框，当前支持 `MESSAGEBOX_OK` 和 `MESSAGEBOX_YESNO` 两种按钮布局
+- `title == NULL` 或空字符串时，优先使用当前窗口标题；若标题为空则回退到 `"GameLib"`
+- 返回 `MESSAGEBOX_RESULT_OK`、`MESSAGEBOX_RESULT_YES` 或 `MESSAGEBOX_RESULT_NO`
+- 文本和标题按 UTF-8 解释，内部转换为宽字符后调用 `MessageBoxW`
+
 ### 6.2 帧缓冲操作
 
 #### `void Clear(uint32_t color = COLOR_BLACK)`
@@ -346,11 +358,14 @@ static bool _srandDone; // srand 是否已初始化
 
 #### `void SetPixel(int x, int y, uint32_t color)`
 - 设置指定像素颜色（带边界检查）
+- 当 `color` 的 Alpha 小于 255 时，按 source-over 规则与当前帧缓冲做混合
 
 #### `uint32_t GetPixel(int x, int y) const`
 - 获取指定像素颜色（越界返回 0）
 
 ### 6.3 图形绘制
+
+说明：本节所有图元 API 都接受 `COLOR_ARGB(a, r, g, b)` 颜色；当 `a < 255` 时，会与现有帧缓冲内容做 Alpha 混合。
 
 #### `void DrawLine(int x1, int y1, int x2, int y2, uint32_t color)`
 - **Bresenham 直线算法**，通过 SetPixel 逐点绘制（带边界检查）
@@ -367,6 +382,15 @@ static bool _srandDone; // srand 是否已初始化
 
 #### `void FillCircle(int cx, int cy, int r, uint32_t color)`
 - **中点圆算法 + 水平线填充**（4 条水平线/每步）
+
+#### `void DrawEllipse(int cx, int cy, int rx, int ry, uint32_t color)`
+- 绘制椭圆边框，参数分别为中心点和横/纵半径
+- 使用基于椭圆方程的对称采样实现，保持与现有软件帧缓冲绘制路径一致
+- 退化情况（半径为 0）会自动回退为点或直线
+
+#### `void FillEllipse(int cx, int cy, int rx, int ry, uint32_t color)`
+- 按扫描线方式填充椭圆，每行通过 `_DrawHLine` 写入
+- 同样支持退化为点或直线的情况
 
 #### `void DrawTriangle(int x1, int y1, int x2, int y2, int x3, int y3, uint32_t color)`
 - 绘制三角形边框（3 条 DrawLine）
@@ -408,6 +432,13 @@ static bool _srandDone; // srand 是否已初始化
 #### `void DrawTextFont(int x, int y, const char *text, uint32_t color, int fontSize)`
 - 简化版本，使用默认字体 `GAMELIB_DEFAULT_FONT_NAME`
 - 适合快速输出中文文字
+
+#### `void DrawPrintfFont(int x, int y, uint32_t color, const char *fontName, int fontSize, const char *fmt, ...)`
+- 字体版格式化输出，内部用 `vsnprintf` 组装文本后调用 `DrawTextFont`
+- 适合分数、FPS、调试变量等需要格式化的字体文字输出
+
+#### `void DrawPrintfFont(int x, int y, uint32_t color, int fontSize, const char *fmt, ...)`
+- 使用默认字体 `GAMELIB_DEFAULT_FONT_NAME` 的简化格式化输出版本
 
 #### `int GetTextWidthFont(const char *text, const char *fontName, int fontSize)`
 - 获取文字在指定字体下的宽度（像素）
@@ -464,7 +495,7 @@ static bool _srandDone; // srand 是否已初始化
 - `SPRITE_COLORKEY`: 与该精灵当前 Color Key 完全匹配的像素跳过（默认值为 `COLORKEY_DEFAULT`，即品红 `0xFFFF00FF`）
 - `SPRITE_ALPHA`: 启用逐像素 Alpha 混合（alpha=0 跳过，alpha=255 直接覆盖，0<alpha<255 按比例混合）
 - 标志可组合使用，如 `SPRITE_FLIP_H | SPRITE_ALPHA`
-- 未启用 `SPRITE_ALPHA` / `SPRITE_COLORKEY` 时，会按 flags 允许的最快路径处理；无翻转时优先逐行 `memcpy`，带翻转时仍会走逐像素路径并跳过 alpha=0 的像素
+- 未启用 `SPRITE_ALPHA` / `SPRITE_COLORKEY` 时，会按 flags 允许的最快路径处理；无翻转时优先逐行 `memcpy`，带翻转时仍走逐像素路径，但会直接覆盖目标像素，不检查源像素 alpha 是否为 0
 - 整张绘制和区域绘制走非缩放快路径；缩放绘制走独立最近邻采样路径，但翻转、ColorKey、Alpha 语义保持一致
 
 #### `void DrawSpriteRegion(int id, int x, int y, int sx, int sy, int sw, int sh)`
@@ -684,6 +715,7 @@ static bool _srandDone; // srand 是否已初始化
 | `WM_KEYDOWN` | 过滤重复按键（bit 30），设置 `_keys[vk] = 1` |
 | `WM_KEYUP` | 设置 `_keys[vk] = 0` |
 | `WM_MOUSEMOVE` | 更新 `_mouseX`, `_mouseY` |
+| `WM_SETCURSOR` | 在客户区内根据 `_mouseVisible` 显示箭头或隐藏鼠标 |
 | `WM_MOUSEWHEEL` | 更新鼠标位置并累计 `_mouseWheelDelta` |
 | `WM_LBUTTONDOWN/UP` | 更新 `_mouseButtons[0]` |
 | `WM_RBUTTONDOWN/UP` | 更新 `_mouseButtons[1]` |
@@ -700,14 +732,17 @@ static bool _srandDone; // srand 是否已初始化
 | `static LRESULT CALLBACK _WndProc(...)` | 窗口过程回调 |
 | `void _DispatchMessages()` | PeekMessage 循环派发消息 |
 | `void _InitDIBInfo(void *ptr, int w, int h)` | 初始化 BITMAPINFO（32-bit, top-down，`biSizeImage` 使用 `(size_t)` 防溢出） |
-| `void _SetPixelFast(int x, int y, uint32_t c)` | 无边界检查的像素写入 |
-| `void _DrawHLine(int x1, int x2, int y, uint32_t c)` | 带裁剪的水平线（DrawRect/FillCircle/FillTriangle 内部用） |
+| `void _SetPixelFast(int x, int y, uint32_t c)` | 无边界检查的像素写入；Alpha<255 时转为混合写入 |
+| `void _DrawHLine(int x1, int x2, int y, uint32_t c)` | 带裁剪的水平线（DrawRect/FillCircle/FillEllipse/FillTriangle 内部用） |
 | `void _UpdateTitleFps()` | 当 `_showFps=true` 时更新标题栏 FPS 显示（在 FPS 统计更新时调用） |
 | `int _AllocSpriteSlot()` | 在 `_sprites` 向量中找空闲槽位或追加新槽位 |
-| `void _DrawSpriteAreaFast(...)` | 非缩放精灵/区域绘制快路径；按 flags 决定是否做逐行 `memcpy`、Color Key 或 Alpha 处理 |
+| `void _DrawSpriteAreaFast(...)` | 非缩放精灵/区域绘制快路径；无 Alpha 且无 ColorKey 时直接写入源像素（无翻转时优先逐行 `memcpy`），其他情况按 flags 做 Color Key 或 Alpha 处理 |
 | `void _DrawSpriteAreaScaled(...)` | 缩放绘制路径，使用最近邻采样并保持翻转、Color Key、Alpha 语义 |
 | `int _AllocTilemapSlot()` | 在 `_tilemaps` 向量中找空闲槽位或追加新槽位 |
 | `static int _gamelib_floor_div(int value, int divisor)` | 向下取整整数除法，供负坐标的 Tilemap 像素到瓦片坐标换算使用 |
+| `static int _gamelib_round_to_int(double value)` | 将浮点值按四舍五入转为整数，供椭圆采样使用 |
+| `static uint32_t _gamelib_alpha_blend(uint32_t dst, uint32_t src)` | 统一的 ARGB source-over 混色 helper |
+| `static void _gamelib_blend_pixel(uint32_t *dst, uint32_t src)` | 对单个目标像素执行 Alpha 混合写入 |
 | `static wchar_t* _gamelib_utf8_to_wide(...)` | 将 UTF-8 字符串转换为宽字符，供窗口标题、字体和资源路径共用 |
 | `static FILE* _gamelib_fopen_utf8(...)` | 用宽字符路径打开文件，统一图片资源的 UTF-8 文件名语义 |
 | `static bool _gamelib_read_text_line(FILE*, std::string&)` | 逐行读取 `.glm` 文本数据，兼容最后一行没有换行符的情况 |
@@ -776,7 +811,7 @@ int main() {
 ### 未来改进方向
 
 1. **精灵旋转** — 添加 `DrawSpriteRotated`
-2. **更多图元** — 椭圆、圆角矩形、贝塞尔曲线等
+2. **更多图元** — 圆角矩形、贝塞尔曲线等
 3. **简单动画系统** — 在 `DrawSpriteFrame` 之上补更高层的动画播放辅助
 4. **音频增强** — 多通道音效、音量控制
 5. **示例游戏 Demo** — 编写打砖块、太空射击等示例
@@ -815,7 +850,7 @@ int main() {
 | GDI+ 加载后检测全零 alpha 并修正为 255 | 24 位图片（BMP/JPG 等无 alpha 通道）经 GDI+ 转 32bppARGB 后 alpha 可能为 0，导致绘制时被当作透明跳过 |
 | Alpha 混合用 `SPRITE_ALPHA` 标志显式启用 | 默认不混合（性能优先），需要混合时通过 `DrawSpriteEx` 传入标志，避免不必要的每像素计算 |
 | 精灵绘制拆分为非缩放快路径和缩放路径 | 常见 `DrawSprite` / `DrawSpriteRegion` 走整数步进快路径；真正缩放时才做最近邻采样 |
-| 无翻转的默认 sprite/tilemap 快路径不检查源像素透明洞 | 常见不透明绘制可直接逐行拷贝；需要透明语义时显式传 `SPRITE_ALPHA` / `SPRITE_COLORKEY` |
+| 无 Alpha 且无 ColorKey 的 sprite/tilemap 快路径不检查源像素透明洞 | 默认路径直接覆盖目标像素；无翻转时可进一步退化为逐行 `memcpy`。需要透明语义时显式传 `SPRITE_ALPHA` / `SPRITE_COLORKEY` |
 | mmsystem 类型和常量自行声明 | 不再 `#include <mmsystem.h>`，减少头文件依赖，避免与 `WIN32_LEAN_AND_MEAN` 冲突 |
 | `unsigned int` 替代 `UINT32` | GCC 4.9.2 的 MinGW 头文件可能未定义 `UINT32` |
 | Tilemap tiles 用 `int*`（malloc 分配）管理 | 与精灵像素内存管理风格一致，析构时自动释放 |
@@ -826,6 +861,9 @@ int main() {
 | Tilemap 不管理 tileset 精灵的生命周期 | `FreeTilemap` 只释放 tiles 数组，tileset 精灵由用户通过 `FreeSprite` 控制 |
 | DIB Section + 常备 DC | 创建 `CreateDIBSection` 并选入常备 `_memDC`，帧缓冲内存由 DIB Section 管理，支持当前 Windows 后端的字体文字输出 |
 | `DrawTextFont` 动态创建字体 | 每次调用创建/销毁字体，适合少量文字；若需大量文字可后续添加字体缓存 |
+| 图元颜色默认接受 ARGB | `SetPixel` 与线段/矩形/圆/椭圆/三角形在 Alpha<255 时统一做 source-over 混合，语义与精灵 Alpha 一致 |
+| `ShowMouse` 不使用全局 `ShowCursor` 计数 | 避免不同窗口/库同时操作时把系统全局光标引用计数弄乱 |
+| `ShowMessage` 只暴露两种按钮布局 | 对初学者 API 保持足够简单，同时覆盖确认/询问两类常见对话框 |
 | `BitBlt` 替代 `SetDIBitsToDevice` | DIB Section 场景下 `BitBlt` 更高效，且代码更简洁 |
 | GDI 文字函数动态加载 | 所有 GDI 函数通过 `LoadLibrary` + `GetProcAddress` 加载，保持只需 `-mwindows` 编译 |
 | `DrawTextFont` alpha 修复 | GDI `TextOutW` 写入 alpha=0；绘制后 `GdiFlush()` + 扫描文字 bounding box，对 alpha=0 且 RGB!=0 的像素恢复 alpha=0xFF |
