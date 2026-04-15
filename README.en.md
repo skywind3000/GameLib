@@ -313,7 +313,7 @@ More examples in the `examples/` directory.
 
 ## Example Programs
 
-The `examples/` directory contains 18 progressive examples that demonstrate GameLib's features step by step, covering windows, graphics, input, sprites, sound, tilemap, font text, and scaled drawing.
+The `examples/` directory contains 19 progressive examples that demonstrate GameLib's features step by step, covering windows, graphics, input, sprites, sound, tilemap, clip rectangles, font text, and scaled drawing.
 
 Compile any example:
 
@@ -360,6 +360,7 @@ g++ -o demo.exe examples/01_hello.cpp -mwindows
 |-|-|-|
 | `14_tilemap.cpp` | Dual-layer scrolling | FillTileRect/ClearTilemap, pixel-to-tile conversion, parallax scrolling |
 | `18_tilemap_file.cpp` | Tilemap file I/O | SaveTilemap, LoadTilemap, the plain-text `.glm` format |
+| `19_clip_tilemap.cpp` | Clipped scrolling windows | SetClip/ClearClip, dual-layer tilemaps, clipped sprites / text / shapes |
 
 ### Fonts and Additional Demos
 

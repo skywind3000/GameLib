@@ -4,7 +4,7 @@
 
 `GameLib.SDL.h` 是 `GameLib.h` 的 **独立 SDL 版产品线**，目标是在 **Windows / macOS / Linux** 上提供尽量一致的教学型 2D 游戏开发体验。
 
-**当前版本**: `0.4.1`
+**当前版本**: `0.4.3`
 
 它不是对现有 `GameLib.h` 的直接替换，也不是在原头文件中塞入大量 `#ifdef SDL` 的混合版本，而是一份 **单独维护的跨平台单头文件**。其公开使用方式尽量保持与 `GameLib.h` 一致：
 
@@ -27,6 +27,8 @@ int main() {
 
 本文档既用于固定 `GameLib.SDL.h` 的定位、依赖、内部架构与兼容边界，也用于同步当前实现状态、已知差异与后续演进边界。
 
+当前 `0.4.3` 已加入与 Win32 主线对齐的 Clip Rectangle 裁剪接口；所有最终写入 `_framebuffer` 的绘制路径都会受当前裁剪矩形约束，空裁剪区域时统一不绘制；`DrawLine()` 会在 Bresenham 前先裁剪线段，`LoadSprite()` 也会拒绝超出 `16384` 限制的图片。
+
 ---
 
 ## 1. 设计目标
@@ -48,6 +50,7 @@ int main() {
 - 库内部仍以 `uint32_t*` ARGB 帧缓冲作为统一绘制目标。
 - 线段、圆、椭圆、三角形、精灵绘制、Tilemap 绘制、Alpha 混合等逻辑继续由库自行实现。
 - SDL 主要负责：窗口、事件、纹理提交、图片解码、TTF 字体、音频输出。
+- Clip Rectangle 也属于软件渲染核心的一部分：它限制的是 `_framebuffer` 上允许写入的像素区域，而不是 SDL renderer 的 viewport。
 
 ### 1.4 面向初学者，而不是暴露 SDL 细节
 
@@ -272,6 +275,8 @@ SDL 平台层
 - **所有公开绘制 API 最终都写入 `_framebuffer`**。
 - SDL renderer 只用于把 `_framebuffer` 显示出来，不直接承载用户绘图。
 - 即使是 `DrawTextFont()`，也应先把字体渲染结果合成进 `_framebuffer`，而不是直接画到 SDL renderer 上。
+- `SetClip()` / `ClearClip()` 改变的是 `_framebuffer` 上的有效写入区域；图元、内置字体、TTF 字体、sprite 和 Tilemap 都必须共享同一套裁剪语义。
+- `DrawLine()` 这类逐像素图元也应先与当前 clip rect 求交，再进入 Bresenham，避免把大量无效像素检查留给 `SetPixel()`。
 
 这样可以保证：
 
@@ -329,7 +334,8 @@ GameLib.SDL.h
 以下公开接口目标是 **名称、参数、基本语义保持一致**：
 
 - `Open` / `IsClosed` / `Update` / `WaitFrame`
-- `Clear` / `SetPixel` / `GetPixel`
+- `Clear` / `SetPixel` / `GetPixel` / `SetClip` / `ClearClip` / `GetClip`
+- `GetClipX` / `GetClipY` / `GetClipW` / `GetClipH`
 - `DrawLine` / `DrawRect` / `FillRect` / `DrawCircle` / `FillCircle` / `DrawEllipse` / `FillEllipse` / `DrawTriangle` / `FillTriangle`
 - `DrawText` / `DrawNumber` / `DrawTextScale` / `DrawPrintf`
 - `CreateSprite` / `LoadSpriteBMP` / `LoadSprite` / `FreeSprite`
@@ -545,7 +551,7 @@ SDL 版输入系统要求：
 
 - `SDL_ttf` 把 UTF-8 文本渲染为临时 `SDL_Surface`
 - 将 surface 转换为 `SDL_PIXELFORMAT_ARGB8888`
-- 再逐像素 Alpha 混合写入 `_framebuffer`
+- 再逐像素 Alpha 混合写入 `_framebuffer`，并先与当前裁剪矩形求交
 
 `DrawPrintfFont()` 复用同一路径：
 
@@ -661,6 +667,7 @@ SDL 版仍保留 `LoadSpriteBMP()`，目的有二：
 - 文件路径按 UTF-8 解释。
 - 使用 `IMG_Load()` 或 `IMG_Load_RW()` 解码。
 - 统一转换为 `SDL_PIXELFORMAT_ARGB8888`。
+- 尺寸限制仍为 `1~16384`；超出限制的图片会直接拒绝载入。
 - 再拷贝到 GameLib 自己分配的 `uint32_t*` 精灵缓冲中。
 
 若 `SDL2_image` 解码失败：
@@ -683,7 +690,9 @@ SDL 版仍保留 `LoadSpriteBMP()`，目的有二：
 - 不依赖 SDL 的 `SDL_RenderCopyEx` 做精灵翻转或缩放。
 - 所有像素混合仍由库自己对 `_framebuffer` 完成。
 - 未启用 `SPRITE_ALPHA` / `SPRITE_COLORKEY` 时，非缩放路径直接覆盖目标像素；无翻转时优先逐行 `memcpy`，带翻转时仍逐像素直写，不检查源像素 alpha 是否为 0。
+- 缩放路径也保持同样语义：未启用 `SPRITE_ALPHA` 时不因为源像素 alpha 为 0 而跳过，只有显式传入 `SPRITE_ALPHA` 时才按源 alpha 混合。
 - 只有显式传入 `SPRITE_ALPHA` 或 `SPRITE_COLORKEY` 时，源像素 alpha / Color Key 才参与透明语义。
+- 所有 `DrawSprite*` 与 `DrawTilemap()` 路径都必须先与当前裁剪矩形求交；空裁剪区域时直接 no-op。
 
 ---
 
@@ -801,6 +810,10 @@ bool _mouseVisible;
 std::string _title;
 int _width;
 int _height;
+int _clipX;
+int _clipY;
+int _clipW;
+int _clipH;
 
 // 帧缓冲
 uint32_t *_framebuffer;

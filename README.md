@@ -314,7 +314,7 @@ int main()
 
 ## 示例程序
 
-`examples/` 目录包含 18 个由浅入深的示例，逐步展示 GameLib 的各项功能，覆盖窗口、图形、输入、精灵、声音、Tilemap、字体文字和缩放绘制。
+`examples/` 目录包含 19 个由浅入深的示例，逐步展示 GameLib 的各项功能，覆盖窗口、图形、输入、精灵、声音、Tilemap、裁剪矩形、字体文字和缩放绘制。
 
 编译任意示例：
 
@@ -361,6 +361,7 @@ g++ -o demo.exe examples/01_hello.cpp -mwindows
 |-|-|-|
 | `14_tilemap.cpp` | 双层卷轴 | FillTileRect/ClearTilemap、像素转瓦片、视差滚动 |
 | `18_tilemap_file.cpp` | 地图文件读写 | SaveTilemap、LoadTilemap、`.glm` 纯文本格式 |
+| `19_clip_tilemap.cpp` | 裁剪窗口卷轴 | SetClip/ClearClip、双层 Tilemap、精灵/字体/图元裁剪 |
 
 ### 字体与补充演示
 

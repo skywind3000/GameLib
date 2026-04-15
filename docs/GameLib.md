@@ -5,11 +5,11 @@
 `GameLib.h` 是一个面向初学者的 **单头文件游戏库**，基于 Win32 GDI，无需 SDL 或其他第三方库。目标用户是小朋友，用于在 Dev C++ (GCC 4.9.2) 环境下开发简单游戏（空战、俄罗斯方块、走迷宫等）。
 
 **文件位置**: `GameLib.h`
-**当前版本**: `1.4.1`
-**当前行数**: 3040 行
+**当前版本**: `1.4.3`
+**当前行数**: 3240 行
 **最后修改**: 2026/04/15
 
-当前 `1.4.1` 已包含鼠标显示/隐藏、`ShowMessage()`、椭圆绘制、图元 Alpha 混合、`DrawPrintfFont()`、默认 sprite/tilemap 快路径“无 Alpha 且无 ColorKey 时直接覆盖目标像素”的实现规则，以及最近调整后的 Tilemap 语义：不再缓存 `tilesetTileCount`，允许地图数据保存超出当前 tileset 范围的非负 `tileId`，并在 `DrawTilemap()` 绘制时按 live tileset 尺寸跳过不可用瓦片。
+当前 `1.4.3` 已包含鼠标显示/隐藏、`ShowMessage()`、椭圆绘制、图元 Alpha 混合、`DrawPrintfFont()`、Clip Rectangle 裁剪矩形、裁剪后的 `DrawLine()`、`LoadSprite()` 的超大尺寸拒绝、默认 sprite/tilemap 快路径“无 Alpha 且无 ColorKey 时直接覆盖目标像素”的实现规则，以及最近调整后的 Tilemap 语义：不再缓存 `tilesetTileCount`，允许地图数据保存超出当前 tileset 范围的非负 `tileId`，并在 `DrawTilemap()` 绘制时按 live tileset 尺寸跳过不可用瓦片。
 
 ---
 
@@ -81,7 +81,7 @@ GameLib.h
 │       ├── GDI+ 懒初始化与图片解码 (_gamelib_gdiplus_init, _gamelib_gdiplus_load)
 │       ├── 构造/析构
 │       ├── 窗口管理 (Open, IsClosed, Update, WaitFrame)
-│       ├── 帧缓冲操作 (Clear, SetPixel, GetPixel)
+│       ├── 帧缓冲操作 (Clear, SetPixel, GetPixel, Clip Rectangle)
 │       ├── 图形绘制 (Line, Rect, Circle, Triangle)
 │       ├── 文字渲染 (DrawText, DrawNumber, DrawTextScale, DrawPrintf)
 │       ├── 字体文字渲染 (DrawTextFont, DrawPrintfFont, GetTextWidthFont, GetTextHeightFont)
@@ -236,6 +236,8 @@ bool _showFps;          // 是否在标题栏显示 FPS
 bool _mouseVisible;     // 是否显示窗口客户区内的鼠标光标
 std::string _title;
 int _width, _height;    // 客户区尺寸
+int _clipX, _clipY;     // 当前有效裁剪矩形左上角（已与屏幕求交）
+int _clipW, _clipH;     // 当前有效裁剪矩形尺寸；<=0 表示无可见区域
 
 // 帧缓冲
 uint32_t *_framebuffer; // width * height 的 ARGB 数组，由 DIB Section 管理
@@ -363,21 +365,39 @@ static bool _srandDone; // srand 是否已初始化
 ### 6.2 帧缓冲操作
 
 #### `void Clear(uint32_t color = COLOR_BLACK)`
-- 用指定颜色填充整个帧缓冲
+- 用指定颜色填充当前裁剪矩形覆盖到的帧缓冲区域
+- 不做 Alpha 混合；即使 `color` 含透明通道，也会直接写入目标像素
 
 #### `void SetPixel(int x, int y, uint32_t color)`
-- 设置指定像素颜色（带边界检查）
+- 设置指定像素颜色（带裁剪和边界检查）
 - 当 `color` 的 Alpha 小于 255 时，按 source-over 规则与当前帧缓冲做混合
 
 #### `uint32_t GetPixel(int x, int y) const`
 - 获取指定像素颜色（越界返回 0）
 
+#### `void SetClip(int x, int y, int w, int h)`
+- 设置当前裁剪矩形
+- 传入矩形会自动与当前屏幕 `[0, width) × [0, height)` 求交
+- `w <= 0 || h <= 0`，或求交后为空时，当前实例进入“无可见区域”状态，后续所有写入屏幕帧缓冲的绘制函数直接 no-op
+- `Open()` 成功后默认裁剪矩形是整屏；再次调用 `Open()` 会重置为新的整屏裁剪
+
+#### `void ClearClip()`
+- 清除当前裁剪，恢复整屏可见
+
+#### `void GetClip(int *x, int *y, int *w, int *h) const`
+- 读取当前有效裁剪矩形
+- 返回值已经是与屏幕求交后的结果，而不是用户原始传入值
+
+#### `int GetClipX() const` / `int GetClipY() const` / `int GetClipW() const` / `int GetClipH() const`
+- 读取当前有效裁剪矩形的各个分量
+
 ### 6.3 图形绘制
 
-说明：本节所有图元 API 都接受 `COLOR_ARGB(a, r, g, b)` 颜色；当 `a < 255` 时，会与现有帧缓冲内容做 Alpha 混合。
+说明：本节所有图元 API 都接受 `COLOR_ARGB(a, r, g, b)` 颜色；当 `a < 255` 时，会与现有帧缓冲内容做 Alpha 混合。所有图元、文字、精灵与 Tilemap 绘制都会受当前 Clip Rectangle 约束。
 
 #### `void DrawLine(int x1, int y1, int x2, int y2, uint32_t color)`
-- **Bresenham 直线算法**，通过 SetPixel 逐点绘制（带边界检查）
+- 先与当前裁剪矩形做线段裁剪，再进入 **Bresenham 直线算法** 逐点绘制
+- 避免整条线大部分落在裁剪区域外时仍逐像素做无效 `SetPixel` 检查
 
 #### `void DrawRect(int x, int y, int w, int h, uint32_t color)`
 - 绘制矩形边框（顶部和底部用 `_DrawHLine`，左右垂直边逐像素 `SetPixel`）
@@ -441,6 +461,7 @@ static bool _srandDone; // srand 是否已初始化
 - 文字背景透明，支持 UTF-8 编码
 - 支持 `\n` 多行输出
 - 当 `color` 的 alpha 为 0 时直接不绘制；当 `0 < alpha < 255` 时，先由 GDI 生成字形，再按调用方 alpha 回混到 `_framebuffer`，保持与其他 ARGB 绘制 API 一致的透明语义
+- 即使内部使用 GDI 参与光栅化，最终仍会恢复裁剪矩形外的像素，保证与其他绘制 API 一致的裁剪语义
 
 #### `void DrawTextFont(int x, int y, const char *text, uint32_t color, int fontSize)`
 - 简化版本，使用默认字体 `GAMELIB_DEFAULT_FONT_NAME`
@@ -479,6 +500,8 @@ static bool _srandDone; // srand 是否已初始化
 - **8-bit 调色板支持**：自动读取 BMP 调色板（最多 256 色），每个像素字节作为调色板索引，转换为 32-bit ARGB（alpha 默认 0xFF）
 - 处理 bottom-up / top-down 行序
 - 每行按 4 字节对齐读取
+- 尺寸限制仍为 `1~16384`；超出限制的图片会直接拒绝载入
+- 尺寸限制仍为 `1~16384`；超出限制的图片会直接拒绝载入
 - 24-bit BMP alpha 默认为 0xFF
 - **安全性**：使用 `memcpy` 读取 BMP 头字段（避免严格别名/对齐问题），尺寸限制 `1~16384`
 - **失败原子性**：如果文件截断、短读或格式非法，已经申请的 sprite 槽位会回滚，不会留下半初始化精灵
@@ -510,7 +533,8 @@ static bool _srandDone; // srand 是否已初始化
 - `SPRITE_ALPHA`: 启用逐像素 Alpha 混合（alpha=0 跳过，alpha=255 直接覆盖，0<alpha<255 按比例混合）
 - 标志可组合使用，如 `SPRITE_FLIP_H | SPRITE_ALPHA`
 - 未启用 `SPRITE_ALPHA` / `SPRITE_COLORKEY` 时，会按 flags 允许的最快路径处理；无翻转时优先逐行 `memcpy`，带翻转时仍走逐像素路径，但会直接覆盖目标像素，不检查源像素 alpha 是否为 0
-- 整张绘制和区域绘制走非缩放快路径；缩放绘制走独立最近邻采样路径，但翻转、ColorKey、Alpha 语义保持一致
+- 整张绘制和区域绘制走非缩放快路径；缩放绘制走独立最近邻采样路径。若未启用 `SPRITE_ALPHA`，缩放路径同样不会因为源像素 alpha 为 0 而跳过，而是直接覆盖目标像素；只有显式传 `SPRITE_ALPHA` 时才按源 alpha 混合
+- 所有 `DrawSprite*` 路径都会先与当前裁剪矩形求交；即使是逐行 `memcpy` 的快路径也不会写出裁剪区域
 
 #### `void DrawSpriteRegion(int id, int x, int y, int sx, int sy, int sw, int sh)`
 - 绘制精灵的子区域（sprite sheet 切图）
@@ -722,10 +746,10 @@ static bool _srandDone; // srand 是否已初始化
   - `SPRITE_ALPHA` — 逐像素 Alpha 混合
   - `SPRITE_ALPHA | SPRITE_COLORKEY` — 可组合使用
 - 如果瓦片图集依赖透明孔洞，应传入 `SPRITE_COLORKEY` 或 `SPRITE_ALPHA`
-- **性能优化**：只绘制屏幕可见范围内的瓦片（自动计算可见列/行范围），不遍历整张地图
+- **性能优化**：只绘制当前裁剪矩形可见范围内的瓦片（自动计算可见列/行范围），不遍历整张地图
 - 绘制前会按当前 tileset sprite 的实际尺寸即时计算可用瓦片总数；即使同一个 sprite 槽位被释放后重新装入更小资源，也不会访问越界像素
 - `tileId < 0` 或超出当前可用瓦片总数的格子会直接跳过，不参与绘制
-- 每个瓦片做像素级边缘裁剪，处理屏幕边界的半瓦片
+- 每个瓦片做像素级边缘裁剪，处理当前裁剪矩形边界上的半瓦片
 - 无 `SPRITE_ALPHA` / `SPRITE_COLORKEY` 时逐行 `memcpy`；其他情况复用 `_DrawSpriteAreaFast`
 
 ---
@@ -891,7 +915,7 @@ int main() {
 | Tilemap 瓦片 ID 用 -1 表示空 | 0 是有效的 tileset 第一块瓦片，-1 不会与任何瓦片冲突 |
 | Tilemap 不再缓存 `tilesetTileCount`，`DrawTilemap()` 统一按当前 sprite 尺寸即时计算 `tileCount` | 避免维护多份上限状态，同时继续以 live sprite 尺寸保证绘制路径内存安全 |
 | Tilemap 载入/写入允许保留超出当前 tileset 范围的非负 `tileId` | 地图数据可以先于 tileset 扩容存在；真正不可绘制的格子统一在 `DrawTilemap()` 阶段跳过 |
-| `DrawTilemap` 预计算可见瓦片范围 | 大地图（如 200×50）时只遍历屏幕内的瓦片，保证绘制性能 |
+| `DrawTilemap` 预计算可见瓦片范围 | 大地图（如 200×50）时只遍历当前裁剪矩形内的瓦片，保证绘制性能 |
 | `DrawTilemap` 复用非缩放精灵快路径 | 无 `SPRITE_ALPHA` / `SPRITE_COLORKEY` 时逐行 memcpy；其他情况转到 `_DrawSpriteAreaFast`，避免保留重复实现 |
 | Tilemap 不管理 tileset 精灵的生命周期 | `FreeTilemap` 只释放 tiles 数组，tileset 精灵由用户通过 `FreeSprite` 控制 |
 | DIB Section + 常备 DC | 创建 `CreateDIBSection` 并选入常备 `_memDC`，帧缓冲内存由 DIB Section 管理，支持当前 Windows 后端的字体文字输出 |

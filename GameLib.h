@@ -58,7 +58,7 @@
 // Version Info
 #define GAMELIB_VERSION_MAJOR     1
 #define GAMELIB_VERSION_MINOR     4
-#define GAMELIB_VERSION_PATCH     1
+#define GAMELIB_VERSION_PATCH     3
 
 
 //---------------------------------------------------------------------
@@ -930,7 +930,7 @@ static uint32_t* _gamelib_gdiplus_load(
 
     uint32_t *pixels = NULL;
 
-    if (width == 0 || height == 0) goto cleanup;
+    if (width == 0 || height == 0 || width > 16384 || height > 16384) goto cleanup;
 
     // LockBits struct (matches GDI+ BitmapData layout)
     {
@@ -1740,13 +1740,15 @@ void GameLib::_UpdateTitleFps()
 void GameLib::Clear(uint32_t color)
 {
     if (!_framebuffer || _clipW <= 0 || _clipH <= 0) return;
-    int clipX1 = _clipX + _clipW;
     int clipY1 = _clipY + _clipH;
-    for (int y = _clipY; y < clipY1; y++) {
-        uint32_t *row = _framebuffer + y * _width;
-        for (int x = _clipX; x < clipX1; x++) {
-            row[x] = color;
-        }
+    uint32_t *firstRow = _framebuffer + _clipY * _width + _clipX;
+    for (int x = 0; x < _clipW; x++) {
+        firstRow[x] = color;
+    }
+    size_t rowBytes = (size_t)_clipW * sizeof(uint32_t);
+    for (int y = _clipY + 1; y < clipY1; y++) {
+        uint32_t *row = _framebuffer + y * _width + _clipX;
+        memcpy(row, firstRow, rowBytes);
     }
 }
 
@@ -1845,6 +1847,79 @@ void GameLib::_SetPixelFast(int x, int y, uint32_t color)
     _gamelib_blend_pixel(_framebuffer + y * _width + x, color);
 }
 
+enum {
+    _GAMELIB_LINE_CLIP_LEFT   = 1,
+    _GAMELIB_LINE_CLIP_RIGHT  = 2,
+    _GAMELIB_LINE_CLIP_TOP    = 4,
+    _GAMELIB_LINE_CLIP_BOTTOM = 8
+};
+
+static int _gamelib_line_clip_code(int x, int y, int left, int top, int right, int bottom)
+{
+    int code = 0;
+    if (x < left) code |= _GAMELIB_LINE_CLIP_LEFT;
+    else if (x > right) code |= _GAMELIB_LINE_CLIP_RIGHT;
+    if (y < top) code |= _GAMELIB_LINE_CLIP_TOP;
+    else if (y > bottom) code |= _GAMELIB_LINE_CLIP_BOTTOM;
+    return code;
+}
+
+static bool _gamelib_clip_line_to_rect(int left, int top, int right, int bottom,
+                                       int *x1, int *y1, int *x2, int *y2)
+{
+    int ax = *x1;
+    int ay = *y1;
+    int bx = *x2;
+    int by = *y2;
+    int codeA = _gamelib_line_clip_code(ax, ay, left, top, right, bottom);
+    int codeB = _gamelib_line_clip_code(bx, by, left, top, right, bottom);
+
+    for (;;) {
+        if ((codeA | codeB) == 0) {
+            *x1 = ax;
+            *y1 = ay;
+            *x2 = bx;
+            *y2 = by;
+            return true;
+        }
+        if ((codeA & codeB) != 0) {
+            return false;
+        }
+
+        int outCode = codeA ? codeA : codeB;
+        int nx = ax;
+        int ny = ay;
+
+        if (outCode & _GAMELIB_LINE_CLIP_TOP) {
+            if (by == ay) return false;
+            nx = ax + (int)(((int64_t)(bx - ax) * (top - ay)) / (by - ay));
+            ny = top;
+        } else if (outCode & _GAMELIB_LINE_CLIP_BOTTOM) {
+            if (by == ay) return false;
+            nx = ax + (int)(((int64_t)(bx - ax) * (bottom - ay)) / (by - ay));
+            ny = bottom;
+        } else if (outCode & _GAMELIB_LINE_CLIP_RIGHT) {
+            if (bx == ax) return false;
+            ny = ay + (int)(((int64_t)(by - ay) * (right - ax)) / (bx - ax));
+            nx = right;
+        } else {
+            if (bx == ax) return false;
+            ny = ay + (int)(((int64_t)(by - ay) * (left - ax)) / (bx - ax));
+            nx = left;
+        }
+
+        if (outCode == codeA) {
+            ax = nx;
+            ay = ny;
+            codeA = _gamelib_line_clip_code(ax, ay, left, top, right, bottom);
+        } else {
+            bx = nx;
+            by = ny;
+            codeB = _gamelib_line_clip_code(bx, by, left, top, right, bottom);
+        }
+    }
+}
+
 
 //=====================================================================
 // Drawing Functions
@@ -1855,6 +1930,10 @@ void GameLib::_SetPixelFast(int x, int y, uint32_t color)
 //---------------------------------------------------------------------
 void GameLib::DrawLine(int x1, int y1, int x2, int y2, uint32_t color)
 {
+    if (_clipW <= 0 || _clipH <= 0) return;
+    if (!_gamelib_clip_line_to_rect(_clipX, _clipY, _clipX + _clipW - 1, _clipY + _clipH - 1,
+                                    &x1, &y1, &x2, &y2)) return;
+
     int dx = abs(x2 - x1);
     int dy = abs(y2 - y1);
     int sx = (x1 < x2) ? 1 : -1;
@@ -2783,6 +2862,11 @@ int GameLib::LoadSprite(const char *filename)
 
     free(fileData);
 
+    if (imgW > 16384 || imgH > 16384) {
+        free(pixels);
+        return -1;
+    }
+
     // Allocate sprite slot, use pixel data returned by GDI+ directly
     int id = _AllocSpriteSlot();
     _sprites[id].width = imgW;
@@ -2969,12 +3053,11 @@ void GameLib::_DrawSpriteAreaScaled(int id, int x, int y, int sx, int sy, int sw
             uint32_t c = srcRow[srcX];
             if (useColorKey && c == colorKey) continue;
 
-            uint32_t sa = COLOR_GET_A(c);
-            if (sa == 0) continue;
-
             if (!useAlpha) {
                 dstRow[dx] = c;
             } else {
+                uint32_t sa = COLOR_GET_A(c);
+                if (sa == 0) continue;
                 _gamelib_blend_pixel(dstRow + dx, c);
             }
         }
