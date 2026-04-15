@@ -60,7 +60,7 @@ int main()
         }
         game.DrawLine(124, 146, 188, 76, COLOR_ARGB(110, 255, 255, 255));
         game.DrawText(26, 162, "SetPixel pattern", COLOR_LIGHT_GRAY);
-        game.DrawText(126, 162, "DrawLine fan", COLOR_LIGHT_GRAY);
+        game.DrawText(26, 174, "DrawLine fan", COLOR_LIGHT_GRAY);
 
         // Panel 2: Rectangles + alpha blending
         game.DrawText(224, 44, "Rectangles + Alpha", COLOR_WHITE);
