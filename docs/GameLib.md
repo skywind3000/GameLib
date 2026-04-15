@@ -4,9 +4,7 @@
 
 `GameLib.h` 是一个面向初学者的 **单头文件游戏库**，基于 Win32 GDI，无需 SDL 或其他第三方库。目标用户是小朋友，用于在 Dev C++ (GCC 4.9.2) 环境下开发简单游戏（空战、俄罗斯方块、走迷宫等）。
 
-**文件位置**: `GameLib.h`
 **当前版本**: `1.4.3`
-**当前行数**: 3240 行
 **最后修改**: 2026/04/15
 
 当前 `1.4.3` 已包含鼠标显示/隐藏、`ShowMessage()`、椭圆绘制、图元 Alpha 混合、`DrawPrintfFont()`、Clip Rectangle 裁剪矩形、裁剪后的 `DrawLine()`、`LoadSprite()` 的超大尺寸拒绝、默认 sprite/tilemap 快路径“无 Alpha 且无 ColorKey 时直接覆盖目标像素”的实现规则，以及最近调整后的 Tilemap 语义：不再缓存 `tilesetTileCount`，允许地图数据保存超出当前 tileset 范围的非负 `tileId`，并在 `DrawTilemap()` 绘制时按 live tileset 尺寸跳过不可用瓦片。
@@ -500,7 +498,6 @@ static bool _srandDone; // srand 是否已初始化
 - **8-bit 调色板支持**：自动读取 BMP 调色板（最多 256 色），每个像素字节作为调色板索引，转换为 32-bit ARGB（alpha 默认 0xFF）
 - 处理 bottom-up / top-down 行序
 - 每行按 4 字节对齐读取
-- 尺寸限制仍为 `1~16384`；超出限制的图片会直接拒绝载入
 - 尺寸限制仍为 `1~16384`；超出限制的图片会直接拒绝载入
 - 24-bit BMP alpha 默认为 0xFF
 - **安全性**：使用 `memcpy` 读取 BMP 头字段（避免严格别名/对齐问题），尺寸限制 `1~16384`

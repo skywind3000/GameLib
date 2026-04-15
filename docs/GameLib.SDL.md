@@ -29,6 +29,8 @@ int main() {
 
 当前 `0.4.3` 已加入与 Win32 主线对齐的 Clip Rectangle 裁剪接口；所有最终写入 `_framebuffer` 的绘制路径都会受当前裁剪矩形约束，空裁剪区域时统一不绘制；`DrawLine()` 会在 Bresenham 前先裁剪线段，`LoadSprite()` 也会拒绝超出 `16384` 限制的图片。
 
+若你只想快速查看 SDL 版的编译命令、依赖开关和当前限制，可直接看仓库根目录的 `SDL2PORT.md`。
+
 ---
 
 ## 1. 设计目标
@@ -215,7 +217,7 @@ Windows / MinGW + vcpkg（已验证可编译 `tests/sdldemo2.cpp`）示例：
 g++ -O2 -Wall -std=c++11 -fstrict-aliasing main.cpp -o game.exe \
     -Ie:/local/vcpkg/installed/x86-mingw-dynamic/include \
     -Le:/local/vcpkg/installed/x86-mingw-dynamic/lib \
-    -lsdl2 -lsdl2_image -lsdl2_ttf -lsdl2_mixer
+    -lSDL2 -lSDL2_image -lSDL2_ttf -lSDL2_mixer
 ```
 
 若你只想测试核心 SDL2 功能，可写成：
@@ -672,8 +674,7 @@ SDL 版仍保留 `LoadSpriteBMP()`，目的有二：
 
 若 `SDL2_image` 解码失败：
 
-- 若文件头是 BMP，可回退到 `LoadSpriteBMP()`。
-- 否则返回 `-1`。
+- 当前实现最终都会继续尝试 `LoadSpriteBMP()` 作为 BMP 后路；因此在没有 `SDL2_image`、初始化失败或 `IMG_Load()` 失败时，BMP 仍可加载，非 BMP 最终仍返回 `-1`。
 
 ### 9.5 DrawSprite 系列
 
@@ -936,7 +937,7 @@ static bool _srandDone;
 目标：
 
 - 让 sprite demo、animation、tilemap 类示例可迁移。
-- 当前状态：已完成，`CreateSprite`、`LoadSpriteBMP`、`LoadSprite`、`DrawSprite*`、`CreateTilemap` / `SaveTilemap` / `LoadTilemap` / `DrawTilemap` 已落地，并由 `tests/sdldemo1.cpp` 覆盖基础回归。
+- 当前状态：已完成，`CreateSprite`、`LoadSpriteBMP`、`LoadSprite`、`DrawSprite*`、`CreateTilemap` / `SaveTilemap` / `LoadTilemap` / `DrawTilemap` 已落地；其中 `DrawTilemap()` 路径已由 `tests/sdldemo1.cpp` 和 `tests/sdldemo5.cpp` 覆盖基础回归，`SaveTilemap` / `LoadTilemap` 目前还缺少一份对齐 `examples/18_tilemap_file.cpp` 的 SDL 独立示例。
 - Tilemap 侧现在允许保留超出当前 tileset 范围的非负 `tileId`；`DrawTilemap()` 在绘制前按 live tileset sprite 尺寸即时计算可用瓦片数，并跳过当前不可绘制的格子，避免 sprite 槽位释放重建后访问越界像素。
 
 ### 阶段 3：字体与音频（已完成）
@@ -957,9 +958,9 @@ static bool _srandDone;
 
 ### 阶段 4：文档与示例迁移（当前阶段目标已完成）
 
-- 为 SDL 版补单独 README 段落
+- 补一份独立的 `SDL2PORT.md` 移植/编译说明
 - 增加 SDL 版构建命令
-- 迁移 2~4 个代表性示例验证 API 兼容度
+- 迁移一组代表性示例验证 API 兼容度
 
 目标：
 
@@ -967,9 +968,9 @@ static bool _srandDone;
 
 当前状态：
 
-- `docs/GameLib.SDL.md` 已同步到当前实现状态。
+- `docs/GameLib.SDL.md` 已同步到当前实现状态，仓库根目录也已新增 `SDL2PORT.md` 作为简版移植说明。
 - `AGENTS.md` 已补充 `GameLib.SDL.h` / `docs/GameLib.SDL.md` 的索引与用途。
-- README 仅保留一句 SDL 产品线提示，主叙事仍突出 Win32 零依赖主线。
+- README 仍只保留一句 SDL 产品线提示，主叙事继续突出 Win32 零依赖主线；具体 SDL 编译命令与限制统一放到 `SDL2PORT.md`。
 - `tests/sdldemo1.cpp` ~ `tests/sdldemo15.cpp` 已形成最小 SDL 回归集，其中 `tests/sdldemo5.cpp` 是从 `examples/14_tilemap.cpp` 迁移来的代表性资产示例，`tests/sdldemo6.cpp` 是从 `examples/13_space_shooter.cpp` 迁移来的完整游戏循环示例，`tests/sdldemo7.cpp` 是从 `examples/12_breakout.cpp` 迁移来的经典碰撞/清版示例，`tests/sdldemo8.cpp` 是从 `examples/11_snake.cpp` 迁移来的网格离散移动示例，`tests/sdldemo9.cpp` 是从 `examples/06_catch_fruit.cpp` 迁移来的接取/漏接判定示例，`tests/sdldemo10.cpp` 是从 `examples/09_sprite_animation.cpp` 迁移来的精灵帧动画示例，`tests/sdldemo11.cpp` 是从 `examples/10_sound_demo.cpp` 迁移来的声音演示示例，`tests/sdldemo12.cpp` 是从 `examples/08_sprite_demo.cpp` 迁移来的精灵基础展示示例，`tests/sdldemo13.cpp` 是从 `examples/16_playsound.cpp` 迁移来的最小音效触发示例，`tests/sdldemo14.cpp` 是从 `examples/03_shapes.cpp` 迁移来的基础图元与 primitive alpha 展示示例，`tests/sdldemo15.cpp` 是从 `examples/19_clip_tilemap.cpp` 迁移来的裁剪矩形、Tilemap、字体与图元组合示例。
 - 其中 `tests/sdldemo5.cpp` ~ `tests/sdldemo13.cpp` 已全部完成用户实机运行验证；说明 SDL 版当前不仅能编译，也已经覆盖了真实素材路径、完整小游戏循环、经典碰撞/清版、网格离散移动、接取判定、精灵基础绘制、精灵帧动画以及声音控制等实际使用场景。
 - 本阶段收口结论：`GameLib.SDL.h` 已具备独立产品线的最小可维护状态，后续工作可以从“补齐代表性回归入口”切换到“按具体差异或新需求增量演进”。
@@ -978,7 +979,7 @@ static bool _srandDone;
 
 以下项目仍属于“已知差异或可继续完善项”，但不阻塞 SDL 版当前作为独立产品线使用：
 
-- `examples/01`、`02`、`04`、`05`、`07`、`15`、`17` 还没有逐个迁成 SDL 版独立测试，但它们覆盖的能力大多已经被现有 `sdldemo1.cpp` ~ `sdldemo15.cpp` 交叉覆盖，因此不阻塞本阶段收口。
+- `examples/01`、`02`、`04`、`05`、`07`、`15`、`17`、`18` 还没有逐个迁成 SDL 版独立测试，但它们覆盖的能力大多已经被现有 `sdldemo1.cpp` ~ `sdldemo15.cpp` 交叉覆盖；其中 `18_tilemap_file.cpp` 对应的 `SaveTilemap` / `LoadTilemap` 往返流程仍然缺一份 SDL 独立示例。
 - 还没有把 `examples/` 中的更多 Win32 示例系统迁成 SDL 版；目前以 `tests/sdldemo1.cpp` ~ `tests/sdldemo15.cpp` 为代表性回归入口，其中已经覆盖了一个资产驱动示例、一个完整游戏循环示例、一个经典碰撞/清版示例、网格离散移动和接取判定两类轻量玩法示例，以及精灵基础展示、精灵动画、声音演示、一份专门覆盖基础图元和 primitive alpha 的 shapes 示例，以及一份专门覆盖 Clip Rectangle、tilemap 窗口、字体与图元裁剪的综合示例。
 - 字体家族名解析虽然已经有 best-effort 候选链，但不同平台上的字形、回退顺序与最终命中字库仍不保证完全一致。
 - `PlayMusic()` 的成功率仍受 `SDL_mixer` 在目标机器上的解码器支持影响；当前实现会明确拒绝 `.mid/.midi`，仓库内回归样例主要验证了 WAV 路径。

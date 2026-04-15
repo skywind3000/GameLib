@@ -45,18 +45,11 @@ int main()
 g++ main.cpp -o game.exe
 ```
 
-最多加个可选参数（推荐）：
-
-```bash
-g++ main.cpp -o game.exe -mwindows
-```
-
-没了。不需要配置项目，不需要下载 SDK，不用改 IDE 设置，也不需要再手写 `-lgdi32 -lwinmm -lgdiplus -lole32` 之类的链接参数。运行一下，可以用方向键操控小球：
+不需要加任何编译参数，很多 C++ 初学者连命令行编译都不懂，只会直接在 Dev-C++ / CodeBlocks 里点编译+运行，让他们像用其他库一样添加一些类似 -ld3d9x 之类编译参数，可能直接就劝退一大群人，因此这个库完全使用默认编译参数，所有依赖都是动态库自己手工加载。
 
 ![](https://skywind3000.github.io/images/p/gamelib/demo1.png)
 
-这里使用 `-mwindows` （你甚至也可以不加）是为了按标准 Windows 窗口程序方式启动，不弹出黑色控制台；在 Dev-Cpp 里新建 Windows Application 项目时通常也会自动加上它。
-
+几行代码迅速看到反馈。
 
 
 ## 为什么做这个？
@@ -76,12 +69,12 @@ g++ main.cpp -o game.exe -mwindows
 
 ### 零配置
 
-- 单个头文件 `GameLib.h`，拷贝即用
-- 不依赖 SDL / SFML / DirectX / OpenGL
-- 不需要再写 `-lgdi32 -lwinmm -lgdiplus -lole32` 等链接参数，推荐使用 `-mwindows`
-- 兼容 Dev C++ 自带的 GCC 4.9.2
+- 单个头文件 `GameLib.h`，拷贝即用；
+- 不依赖 SDL / SFML / DirectX / OpenGL；
+- 不需要再写 `-lgdi32 -lwinmm -lgdiplus -lole32` 等链接参数，可以选择性加个 `-mwindows` （启动没有黑色控制台窗口的意思）；
+- 兼容 Dev C++ 自带的 GCC 4.9.2；
 
-（注：应大家要求 port 了一个 SDL2 版本的 GameLib 供 Linux/macOS 平台使用，详细见 [GameLib.SDL.h](GameLib.SDL.h) 文件）。
+（注：应大家要求 port 了一个 SDL2 版本的 `GameLib.SDL.h` 供 Linux/macOS 平台使用，同样是单体头文件，详细见 [SDL2PORT.md](SDL2PORT.md) 文件）。
 
 ### 开箱即用的绘图
 
