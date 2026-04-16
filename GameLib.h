@@ -42,7 +42,7 @@
 // Compile command (MinGW / Dev C++):
 //     g++ -o game.exe main.cpp -mwindows
 //
-// Last Modified: 2026/04/15
+// Last Modified: 2026/04/16
 //
 //=====================================================================
 #ifndef GAMELIB_H
@@ -57,8 +57,8 @@
 
 // Version Info
 #define GAMELIB_VERSION_MAJOR     1
-#define GAMELIB_VERSION_MINOR     6
-#define GAMELIB_VERSION_PATCH     0
+#define GAMELIB_VERSION_MINOR     8
+#define GAMELIB_VERSION_PATCH     1
 
 
 //---------------------------------------------------------------------

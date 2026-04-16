@@ -4,10 +4,10 @@
 
 `GameLib.h` 是一个面向初学者的 **单头文件游戏库**，基于 Win32 GDI，无需 SDL 或其他第三方库。目标用户是小朋友，用于在 Dev C++ (GCC 4.9.2) 环境下开发简单游戏（空战、俄罗斯方块、走迷宫等）。
 
-**当前版本**: `1.8.0`
+**当前版本**: `1.8.1`
 **最后修改**: 2026/04/16
 
-当前 `1.8.0` 已包含鼠标显示/隐藏、`ShowMessage()`、椭圆绘制、图元 Alpha 混合、`DrawPrintfFont()`、Clip Rectangle 裁剪矩形、裁剪后的 `DrawLine()`、`LoadSprite()` 的超大尺寸拒绝、默认 sprite/tilemap 快路径“无 Alpha 且无 ColorKey 时直接覆盖目标像素”的实现规则、独立的精灵旋转绘制（`DrawSpriteRotated` / `DrawSpriteFrameRotated`，中心点语义，最近邻采样），以及最近调整后的 Tilemap 语义：不再缓存 `tilesetTileCount`，允许地图数据保存超出当前 tileset 范围的非负 `tileId`，并在 `DrawTilemap()` 绘制时按 live tileset 尺寸跳过不可用瓦片），以及新增的场景管理（`SetScene`/`GetScene`/`IsSceneChanged`/`GetPreviousScene`，延迟到下一帧生效）和存档读写（`SaveInt`/`LoadInt`/`SaveFloat`/`LoadFloat`/`SaveString`/`LoadString`/`HasSaveKey`/`DeleteSaveKey`/`DeleteSave`，全部 `static`，纯文本 `key=value` 格式），以及固定 framebuffer + 可选可缩放窗口：`Open()` 决定逻辑 framebuffer 尺寸，`Update()` 在窗口客户区与 framebuffer 尺寸不同时自动缩放填满，鼠标坐标则反算回 framebuffer 逻辑坐标。
+当前 `1.8.1` 的稳定范围包括：窗口与输入、图元与文字、精灵与 Tilemap、声音、场景管理、纯文本存档，以及固定 framebuffer + 可选可缩放窗口。Tilemap 不再缓存 `tilesetTileCount`；地图里超出当前 tileset 范围的非负 `tileId` 会在绘制时自动跳过。窗口缩放时继续返回 framebuffer 逻辑坐标的鼠标位置。
 
 ---
 
@@ -244,8 +244,7 @@ bool _resizable;        // Open() 是否允许用户拖拽缩放 / 最大化
 // 帧缓冲
 uint32_t *_framebuffer; // width * height 的 ARGB 数组，由 DIB Section 管理
 uint32_t *_presentBuffer; // 当前窗口尺寸的缩放后临时显示缓冲
-int *_presentMapX;        // 目标 x -> 源 x 的预计算映射
-int *_presentMapY;        // 目标 y -> 源 y 的预计算映射
+int *_presentMapX, *_presentMapY; // 预计算的横/纵缩放映射
 
 // DIB Section（用于 GDI 文字渲染 + BitBlt 刷新）
 HDC _memDC;             // 常备内存 DC
@@ -342,7 +341,7 @@ static bool _srandDone; // srand 是否已初始化
 #### `void Update()`
 1. 保存上一帧按键状态到 `_keys_prev`，鼠标状态到 `_mouseButtons_prev`，并将 `_mouseWheelDelta` 清零
 2. 派发 Windows 消息（PeekMessage 循环），同步当前客户区尺寸和输入状态
-3. 若客户区尺寸与 framebuffer 相同，则直接 `BitBlt`；否则按预计算的 x/y 映射做最近邻软件缩放，把结果写入 `present buffer` 后再 `SetDIBitsToDevice` 刷新到窗口客户区
+3. 若客户区尺寸与 framebuffer 相同，则直接 `BitBlt`；否则按预计算映射做最近邻软件缩放，把结果写入 `present buffer` 后再 `SetDIBitsToDevice` 刷新到窗口客户区
 4. 使用 `QueryPerformanceCounter()` 更新 deltaTime 和 FPS（内部使用 `double` 计算，FPS 每秒统计一次）
 5. FPS 更新时调用 `_UpdateTitleFps()` 更新标题栏显示
 
@@ -1049,12 +1048,11 @@ int main() {
 | `DrawTilemap` 预计算可见瓦片范围 | 大地图（如 200×50）时只遍历当前裁剪矩形内的瓦片，保证绘制性能 |
 | `DrawTilemap` 复用非缩放精灵快路径 | 无 `SPRITE_ALPHA` / `SPRITE_COLORKEY` 时逐行 memcpy；其他情况转到 `_DrawSpriteAreaFast`，避免保留重复实现 |
 | Tilemap 不管理 tileset 精灵的生命周期 | `FreeTilemap` 只释放 tiles 数组，tileset 精灵由用户通过 `FreeSprite` 控制 |
-| DIB Section + present buffer | 创建 `CreateDIBSection` 并选入常备 `_memDC` 作为帧缓冲源；缩放显示时使用预计算 x/y 映射生成 `present buffer`，并复用重复目标行降低 CPU 开销 |
+| DIB Section + present buffer | 创建 `CreateDIBSection` 并选入常备 `_memDC` 作为帧缓冲源；缩放显示时使用预计算映射生成 `present buffer` |
 | `DrawTextFont` 动态创建字体 | 每次调用创建/销毁字体，适合少量文字；若需大量文字可后续添加字体缓存 |
 | 图元颜色默认接受 ARGB | `SetPixel` 与线段/矩形/圆/椭圆/三角形在 Alpha<255 时统一做 source-over 混合，语义与精灵 Alpha 一致 |
 | `ShowMouse` 不使用全局 `ShowCursor` 计数 | 避免不同窗口/库同时操作时把系统全局光标引用计数弄乱 |
 | `ShowMessage` 只暴露两种按钮布局 | 对初学者 API 保持足够简单，同时覆盖确认/询问两类常见对话框 |
-| 显示提交区分直拷贝与软件缩放 | 同尺寸时继续走 `BitBlt` 快路径；缩放显示时改为预计算映射 + `present buffer`，避免直接依赖 GDI 的缩放采样 |
 | GDI 文字函数动态加载 | 所有 GDI 函数通过 `LoadLibrary` + `GetProcAddress` 加载，保持只需 `-mwindows` 编译 |
 | `DrawTextFont` 结果按调用方 alpha 再混回帧缓冲 | GDI 栅格本身不遵守 GameLib 的 ARGB 语义，需要先修正字形 alpha，再按调用方 alpha 做 post-blend |
 | 构造函数加载核心 API | `gdi32.dll`/`winmm.dll` 是 Windows 系统 DLL，实际不会加载失败；构造时加载消除了"API 未加载"状态，后续方法无需 NULL 检查 |
