@@ -105,18 +105,6 @@
 | `IsMusicPlaying()`          | 当前音乐是否处于播放状态 |
 | `PlayBeep(freq, duration)`  | 蜂鸣器                   |
 
-### 工具
-
-| 函数                                      | 说明         |
-| ----------------------------------------- | ------------ |
-| `Random(min, max)`                        | 随机数       |
-| `RectOverlap(...)`                        | 矩形碰撞检测 |
-| `CircleOverlap(...)`                      | 圆形碰撞检测 |
-| `PointInRect(px, py, x, y, w, h)`         | 点在矩形内   |
-| `Distance(x1, y1, x2, y2)`                | 两点距离（返回 `float`） |
-| `DrawGrid(x, y, rows, cols, size, color)` | 画网格       |
-| `FillCell(gx, gy, row, col, size, color)` | 填充网格单元 |
-
 ### Tilemap
 
 | 函数                                             | 说明                            |
@@ -134,6 +122,18 @@
 | `FillTileRect(mapId, col, row, cols, rows, tileId)` | 批量填充矩形区域           |
 | `ClearTilemap(mapId, tileId = -1)`               | 用指定瓦片填满整张地图（默认 `-1` 为清空） |
 | `DrawTilemap(mapId, x, y, flags)`                | 绘制地图（支持 ColorKey/Alpha） |
+
+### 工具
+
+| 函数                                      | 说明         |
+| ----------------------------------------- | ------------ |
+| `Random(min, max)`                        | 随机数       |
+| `RectOverlap(...)`                        | 矩形碰撞检测 |
+| `CircleOverlap(...)`                      | 圆形碰撞检测 |
+| `PointInRect(px, py, x, y, w, h)`         | 点在矩形内   |
+| `Distance(x1, y1, x2, y2)`                | 两点距离（返回 `float`） |
+| `DrawGrid(x, y, rows, cols, size, color)` | 画网格       |
+| `FillCell(gx, gy, row, col, size, color)` | 填充网格单元 |
 
 tileset 是一张普通精灵（`LoadSprite` / `CreateSprite`），按 `tileSize` 自动切分。`WorldToTileCol/Row` 对负坐标也按向下取整换算。`DrawTilemap` 默认走不透明快路径，只绘制当前裁剪矩形内可见的瓦片；传 `(-cameraX, -cameraY)` 即可实现卷轴，如需透明孔洞请显式传 `SPRITE_COLORKEY` 或 `SPRITE_ALPHA`。Tilemap 数据允许保存超出当前 tileset 范围的非负 `tileId`；`SetTile` / `FillTileRect` / `ClearTilemap` / `LoadTilemap` 不会因为它大于当前 tileset 而拒绝，`DrawTilemap` 会在绘制时按当前 tileset 实际尺寸自动跳过这些格子。`-1` 仍是唯一合法的空瓦片值，其他负值仍视为无效。`.glm` 是纯文本格式：第一行固定 `GLM1`，第二行是 `tileSize rows cols`，后续每行一行瓦片数据，使用空格或 Tab 分隔。载入时每行超过 `cols` 的数据会忽略，不足的部分补 `-1`；超过 `rows` 的行忽略，不足的行补 `-1`。文件里不记录 tileset 路径，载入时由调用者提供 `tilesetId`。
 

@@ -383,7 +383,28 @@ public:
     int GetSpriteHeight(int id) const;
     void SetSpriteColorKey(int id, uint32_t color);
     uint32_t GetSpriteColorKey(int id) const;
-
+	
+    // -------- Tilemap System --------
+    int CreateTilemap(int cols, int rows, int tileSize, int tilesetId);
+    bool SaveTilemap(const char *filename, int mapId) const;
+    int LoadTilemap(const char *filename, int tilesetId);
+    void FreeTilemap(int mapId);
+    void SetTile(int mapId, int col, int row, int tileId);
+    int GetTile(int mapId, int col, int row) const;
+    int GetTilemapCols(int mapId) const;
+    int GetTilemapRows(int mapId) const;
+    int GetTileSize(int mapId) const;
+    int WorldToTileCol(int mapId, int x) const;
+    int WorldToTileRow(int mapId, int y) const;
+    int GetTileAtPixel(int mapId, int x, int y) const;
+    void FillTileRect(int mapId, int col, int row, int cols, int rows, int tileId);
+    void ClearTilemap(int mapId, int tileId = -1);
+    void DrawTilemap(int mapId, int x, int y, int flags = 0);
+	
+    // -------- Grid Helpers --------
+    void DrawGrid(int x, int y, int rows, int cols, int cellSize, uint32_t color);
+    void FillCell(int gridX, int gridY, int row, int col, int cellSize, uint32_t color);
+	
     // -------- Input --------
     bool IsKeyDown(int key) const;
     bool IsKeyPressed(int key) const;
@@ -412,27 +433,6 @@ public:
                               int cx2, int cy2, int r2);
     static bool PointInRect(int px, int py, int x, int y, int w, int h);
     static float Distance(int x1, int y1, int x2, int y2);
-
-    // -------- Grid Helpers --------
-    void DrawGrid(int x, int y, int rows, int cols, int cellSize, uint32_t color);
-    void FillCell(int gridX, int gridY, int row, int col, int cellSize, uint32_t color);
-
-    // -------- Tilemap System --------
-    int CreateTilemap(int cols, int rows, int tileSize, int tilesetId);
-    bool SaveTilemap(const char *filename, int mapId) const;
-    int LoadTilemap(const char *filename, int tilesetId);
-    void FreeTilemap(int mapId);
-    void SetTile(int mapId, int col, int row, int tileId);
-    int GetTile(int mapId, int col, int row) const;
-    int GetTilemapCols(int mapId) const;
-    int GetTilemapRows(int mapId) const;
-    int GetTileSize(int mapId) const;
-    int WorldToTileCol(int mapId, int x) const;
-    int WorldToTileRow(int mapId, int y) const;
-    int GetTileAtPixel(int mapId, int x, int y) const;
-    void FillTileRect(int mapId, int col, int row, int cols, int rows, int tileId);
-    void ClearTilemap(int mapId, int tileId = -1);
-    void DrawTilemap(int mapId, int x, int y, int flags = 0);
 
 private:
     // disable copy

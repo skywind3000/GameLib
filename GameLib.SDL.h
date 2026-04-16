@@ -307,18 +307,7 @@ public:
     bool PlayMusic(const char *filename, bool loop = true);
     void StopMusic();
     bool IsMusicPlaying() const;
-
-    static int Random(int minVal, int maxVal);
-    static bool RectOverlap(int x1, int y1, int w1, int h1,
-                            int x2, int y2, int w2, int h2);
-    static bool CircleOverlap(int cx1, int cy1, int r1,
-                              int cx2, int cy2, int r2);
-    static bool PointInRect(int px, int py, int x, int y, int w, int h);
-    static float Distance(int x1, int y1, int x2, int y2);
-
-    void DrawGrid(int x, int y, int rows, int cols, int cellSize, uint32_t color);
-    void FillCell(int gridX, int gridY, int row, int col, int cellSize, uint32_t color);
-
+	
     int CreateTilemap(int cols, int rows, int tileSize, int tilesetId);
     bool SaveTilemap(const char *filename, int mapId) const;
     int LoadTilemap(const char *filename, int tilesetId);
@@ -334,6 +323,17 @@ public:
     void FillTileRect(int mapId, int col, int row, int cols, int rows, int tileId);
     void ClearTilemap(int mapId, int tileId = -1);
     void DrawTilemap(int mapId, int x, int y, int flags = 0);
+	
+    void DrawGrid(int x, int y, int rows, int cols, int cellSize, uint32_t color);
+    void FillCell(int gridX, int gridY, int row, int col, int cellSize, uint32_t color);
+
+    static int Random(int minVal, int maxVal);
+    static bool RectOverlap(int x1, int y1, int w1, int h1,
+                            int x2, int y2, int w2, int h2);
+    static bool CircleOverlap(int cx1, int cy1, int r1,
+                              int cx2, int cy2, int r2);
+    static bool PointInRect(int px, int py, int x, int y, int w, int h);
+    static float Distance(int x1, int y1, int x2, int y2);
 
 private:
     GameLib(const GameLib &);
