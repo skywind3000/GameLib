@@ -336,11 +336,6 @@ public:
     void DrawTextScale(int x, int y, const char *text, uint32_t color, int scale);
     void DrawPrintf(int x, int y, uint32_t color, const char *fmt, ...);
 
-    bool Button(int x, int y, int w, int h, const char *text, uint32_t color);
-    bool Checkbox(int x, int y, const char *text, bool *checked);
-    bool RadioBox(int x, int y, const char *text, int *value, int index);
-    bool ToggleButton(int x, int y, int w, int h, const char *text, bool *toggled, uint32_t color);
-
     void DrawTextFont(int x, int y, const char *text, uint32_t color, const char *fontName, int fontSize);
     void DrawTextFont(int x, int y, const char *text, uint32_t color, int fontSize);
     void DrawPrintfFont(int x, int y, uint32_t color, const char *fontName, int fontSize, const char *fmt, ...);
@@ -407,6 +402,12 @@ public:
 	
     void DrawGrid(int x, int y, int rows, int cols, int cellSize, uint32_t color);
     void FillCell(int gridX, int gridY, int row, int col, int cellSize, uint32_t color);
+
+    // -------- UI System --------
+    bool Button(int x, int y, int w, int h, const char *text, uint32_t color);
+    bool Checkbox(int x, int y, const char *text, bool *checked);
+    bool RadioBox(int x, int y, const char *text, int *value, int index);
+    bool ToggleButton(int x, int y, int w, int h, const char *text, bool *toggled, uint32_t color);
 
     // -------- Scene Management --------
     void SetScene(int scene);
@@ -3195,321 +3196,10 @@ uint32_t GameLib::GetSpriteColorKey(int id) const
     return _sprites[id].colorKey;
 }
 
-bool GameLib::IsKeyDown(int key) const
-{
-    return _keys[key & 511] != 0;
-}
 
-bool GameLib::IsKeyPressed(int key) const
-{
-    int k = key & 511;
-    return (_keys[k] != 0) && (_keys_prev[k] == 0);
-}
-
-bool GameLib::IsKeyReleased(int key) const
-{
-    int k = key & 511;
-    return (_keys[k] == 0) && (_keys_prev[k] != 0);
-}
-
-int GameLib::GetMouseX() const { return _mouseX; }
-int GameLib::GetMouseY() const { return _mouseY; }
-
-bool GameLib::IsMouseDown(int button) const
-{
-    if (button < 0 || button > 2) return false;
-    return _mouseButtons[button] != 0;
-}
-
-bool GameLib::IsMousePressed(int button) const
-{
-    if (button < 0 || button > 2) return false;
-    return (_mouseButtons[button] != 0) && (_mouseButtons_prev[button] == 0);
-}
-
-bool GameLib::IsMouseReleased(int button) const
-{
-    if (button < 0 || button > 2) return false;
-    return (_mouseButtons[button] == 0) && (_mouseButtons_prev[button] != 0);
-}
-
-int GameLib::GetMouseWheelDelta() const
-{
-    return _mouseWheelDelta;
-}
-
-bool GameLib::IsActive() const
-{
-    return _active;
-}
-
-void GameLib::PlayBeep(int frequency, int duration)
-{
-    if (duration <= 0) return;
-    if (frequency <= 0) frequency = 440;
-
-#if GAMELIB_SDL_HAS_MIXER
-    if (_EnsureMixerReady()) {
-        int sampleRate = 0;
-        int channels = 0;
-        Uint16 format = 0;
-        if (Mix_QuerySpec(&sampleRate, &format, &channels) != 0 &&
-            sampleRate > 0 && channels > 0 && format == AUDIO_S16SYS) {
-            std::vector<int16_t> toneData;
-            _gamelib_generate_beep_pcm(toneData, sampleRate, channels, frequency, duration);
-
-            if (!toneData.empty()) {
-                Mix_Chunk *chunk = Mix_QuickLoad_RAW((Uint8*)toneData.data(),
-                    (Uint32)(toneData.size() * sizeof(int16_t)));
-                if (chunk) {
-                    int channel = Mix_PlayChannel(1, chunk, 0);
-                    if (channel >= 0) {
-                        Uint32 timeout = SDL_GetTicks() + (Uint32)duration + 1000U;
-                        while (Mix_Playing(channel) != 0 &&
-                               !SDL_TICKS_PASSED(SDL_GetTicks(), timeout)) {
-                            SDL_Delay(1);
-                        }
-                        Mix_HaltChannel(channel);
-                        Mix_FreeChunk(chunk);
-                        return;
-                    }
-                    Mix_FreeChunk(chunk);
-                }
-            }
-        }
-    }
-#endif
-
-    if (!_audioReady) {
-        if (SDL_InitSubSystem(SDL_INIT_AUDIO) != 0) return;
-        _audioReady = true;
-    }
-
-    SDL_AudioSpec want;
-    SDL_AudioSpec have;
-    SDL_zero(want);
-    SDL_zero(have);
-    want.freq = 44100;
-    want.format = AUDIO_S16SYS;
-    want.channels = 2;
-    want.samples = 1024;
-    want.callback = NULL;
-
-    SDL_AudioDeviceID device = SDL_OpenAudioDevice(
-        NULL, 0, &want, &have,
-        SDL_AUDIO_ALLOW_FREQUENCY_CHANGE | SDL_AUDIO_ALLOW_CHANNELS_CHANGE);
-    if (device == 0) return;
-
-    if (have.freq <= 0 || have.channels <= 0 || have.format != AUDIO_S16SYS) {
-        SDL_CloseAudioDevice(device);
-        return;
-    }
-
-    std::vector<int16_t> toneData;
-    _gamelib_generate_beep_pcm(toneData, have.freq, have.channels, frequency, duration);
-    if (toneData.empty()) {
-        SDL_CloseAudioDevice(device);
-        return;
-    }
-
-    SDL_ClearQueuedAudio(device);
-    if (SDL_QueueAudio(device, toneData.data(),
-                       (Uint32)(toneData.size() * sizeof(int16_t))) == 0) {
-        Uint32 timeout = SDL_GetTicks() + (Uint32)duration + 500U;
-        SDL_PauseAudioDevice(device, 0);
-        while (SDL_GetQueuedAudioSize(device) > 0 &&
-               !SDL_TICKS_PASSED(SDL_GetTicks(), timeout)) {
-            SDL_Delay(1);
-        }
-        SDL_Delay(8);
-    }
-
-    SDL_CloseAudioDevice(device);
-}
-
-bool GameLib::PlayWAV(const char *filename, bool loop)
-{
-#if GAMELIB_SDL_HAS_MIXER
-    if (!filename) return false;
-    if (!_EnsureMixerReady()) return false;
-
-    StopWAV();
-    _currentWav = Mix_LoadWAV(filename);
-    if (!_currentWav) return false;
-
-    _wavChannel = Mix_PlayChannel(0, _currentWav, loop ? -1 : 0);
-    if (_wavChannel < 0) {
-        Mix_FreeChunk(_currentWav);
-        _currentWav = NULL;
-        return false;
-    }
-    return true;
-#else
-    (void)filename;
-    (void)loop;
-    return false;
-#endif
-}
-
-void GameLib::StopWAV()
-{
-#if GAMELIB_SDL_HAS_MIXER
-    if (_mixerReady) {
-        Mix_HaltChannel(0);
-        if (_currentWav) {
-            Mix_FreeChunk(_currentWav);
-            _currentWav = NULL;
-        }
-        _wavChannel = 0;
-    }
-#endif
-}
-
-#if GAMELIB_SDL_HAS_MIXER
-static char _gamelib_sdl_music_ascii_tolower(char ch)
-{
-    if (ch >= 'A' && ch <= 'Z') return (char)(ch - 'A' + 'a');
-    return ch;
-}
-
-static bool _gamelib_sdl_path_has_music_extension(const char *filename, const char *extension)
-{
-    if (!filename || !extension || !extension[0]) return false;
-
-    const char *dot = strrchr(filename, '.');
-    if (!dot || !dot[1]) return false;
-
-    const char *lhs = dot + 1;
-    const char *rhs = extension;
-    while (*lhs && *rhs) {
-        if (_gamelib_sdl_music_ascii_tolower(*lhs) != _gamelib_sdl_music_ascii_tolower(*rhs)) return false;
-        lhs++;
-        rhs++;
-    }
-    return *lhs == '\0' && *rhs == '\0';
-}
-
-static bool _gamelib_sdl_is_midi_music_path(const char *filename)
-{
-    return _gamelib_sdl_path_has_music_extension(filename, "mid") ||
-           _gamelib_sdl_path_has_music_extension(filename, "midi");
-}
-#endif
-
-bool GameLib::PlayMusic(const char *filename, bool loop)
-{
-#if GAMELIB_SDL_HAS_MIXER
-    if (!filename) return false;
-
-    if (_gamelib_sdl_is_midi_music_path(filename)) {
-        StopMusic();
-        return false;
-    }
-
-    if (!_EnsureMixerReady()) return false;
-
-    StopMusic();
-    _currentMusic = Mix_LoadMUS(filename);
-    if (!_currentMusic) return false;
-    if (Mix_PlayMusic(_currentMusic, loop ? -1 : 0) != 0) {
-        Mix_FreeMusic(_currentMusic);
-        _currentMusic = NULL;
-        return false;
-    }
-    _musicPlaying = true;
-    return true;
-#else
-    (void)filename;
-    (void)loop;
-    return false;
-#endif
-}
-
-void GameLib::StopMusic()
-{
-#if GAMELIB_SDL_HAS_MIXER
-    if (_mixerReady) {
-        Mix_HaltMusic();
-        if (_currentMusic) {
-            Mix_FreeMusic(_currentMusic);
-            _currentMusic = NULL;
-        }
-    }
-#endif
-    _musicPlaying = false;
-}
-
-bool GameLib::IsMusicPlaying() const
-{
-#if GAMELIB_SDL_HAS_MIXER
-    if (!_mixerReady || !_currentMusic) return false;
-    return _musicPlaying && Mix_PlayingMusic() != 0;
-#else
-    return false;
-#endif
-}
-
-int GameLib::Random(int minVal, int maxVal)
-{
-    if (minVal > maxVal) { int t = minVal; minVal = maxVal; maxVal = t; }
-    if (minVal == maxVal) return minVal;
-    return minVal + rand() % (maxVal - minVal + 1);
-}
-
-bool GameLib::RectOverlap(int x1, int y1, int w1, int h1,
-                          int x2, int y2, int w2, int h2)
-{
-    return !(x1 + w1 <= x2 || x2 + w2 <= x1 || y1 + h1 <= y2 || y2 + h2 <= y1);
-}
-
-bool GameLib::CircleOverlap(int cx1, int cy1, int r1,
-                            int cx2, int cy2, int r2)
-{
-    int64_t dx = cx1 - cx2;
-    int64_t dy = cy1 - cy2;
-    int64_t distSq = dx * dx + dy * dy;
-    int64_t rSum = r1 + r2;
-    return distSq <= rSum * rSum;
-}
-
-bool GameLib::PointInRect(int px, int py, int x, int y, int w, int h)
-{
-    return px >= x && px < x + w && py >= y && py < y + h;
-}
-
-float GameLib::Distance(int x1, int y1, int x2, int y2)
-{
-    float dx = (float)(x1 - x2);
-    float dy = (float)(y1 - y2);
-    return sqrtf(dx * dx + dy * dy);
-}
-
-void GameLib::SetScene(int scene)
-{
-    _pendingScene = scene;
-    _hasPendingScene = true;
-}
-
-int GameLib::GetScene() const { return _scene; }
-bool GameLib::IsSceneChanged() const { return _sceneChanged; }
-int GameLib::GetPreviousScene() const { return _previousScene; }
-
-void GameLib::DrawGrid(int x, int y, int rows, int cols, int cellSize, uint32_t color)
-{
-    for (int r = 0; r <= rows; r++) {
-        DrawLine(x, y + r * cellSize, x + cols * cellSize, y + r * cellSize, color);
-    }
-    for (int c = 0; c <= cols; c++) {
-        DrawLine(x + c * cellSize, y, x + c * cellSize, y + rows * cellSize, color);
-    }
-}
-
-void GameLib::FillCell(int gridX, int gridY, int row, int col, int cellSize, uint32_t color)
-{
-    FillRect(gridX + col * cellSize + 1, gridY + row * cellSize + 1,
-             cellSize - 1, cellSize - 1, color);
-}
-
+//=====================================================================
+// Tilemap System
+//=====================================================================
 int GameLib::_AllocTilemapSlot()
 {
     for (size_t i = 0; i < _tilemaps.size(); i++) {
@@ -3842,6 +3532,325 @@ void GameLib::DrawTilemap(int mapId, int x, int y, int flags)
             }
         }
     }
+}
+
+
+//=====================================================================
+// Keyboard & Mouse
+//=====================================================================
+bool GameLib::IsKeyDown(int key) const
+{
+    return _keys[key & 511] != 0;
+}
+
+bool GameLib::IsKeyPressed(int key) const
+{
+    int k = key & 511;
+    return (_keys[k] != 0) && (_keys_prev[k] == 0);
+}
+
+bool GameLib::IsKeyReleased(int key) const
+{
+    int k = key & 511;
+    return (_keys[k] == 0) && (_keys_prev[k] != 0);
+}
+
+int GameLib::GetMouseX() const { return _mouseX; }
+int GameLib::GetMouseY() const { return _mouseY; }
+
+bool GameLib::IsMouseDown(int button) const
+{
+    if (button < 0 || button > 2) return false;
+    return _mouseButtons[button] != 0;
+}
+
+bool GameLib::IsMousePressed(int button) const
+{
+    if (button < 0 || button > 2) return false;
+    return (_mouseButtons[button] != 0) && (_mouseButtons_prev[button] == 0);
+}
+
+bool GameLib::IsMouseReleased(int button) const
+{
+    if (button < 0 || button > 2) return false;
+    return (_mouseButtons[button] == 0) && (_mouseButtons_prev[button] != 0);
+}
+
+int GameLib::GetMouseWheelDelta() const
+{
+    return _mouseWheelDelta;
+}
+
+bool GameLib::IsActive() const
+{
+    return _active;
+}
+
+void GameLib::PlayBeep(int frequency, int duration)
+{
+    if (duration <= 0) return;
+    if (frequency <= 0) frequency = 440;
+
+#if GAMELIB_SDL_HAS_MIXER
+    if (_EnsureMixerReady()) {
+        int sampleRate = 0;
+        int channels = 0;
+        Uint16 format = 0;
+        if (Mix_QuerySpec(&sampleRate, &format, &channels) != 0 &&
+            sampleRate > 0 && channels > 0 && format == AUDIO_S16SYS) {
+            std::vector<int16_t> toneData;
+            _gamelib_generate_beep_pcm(toneData, sampleRate, channels, frequency, duration);
+
+            if (!toneData.empty()) {
+                Mix_Chunk *chunk = Mix_QuickLoad_RAW((Uint8*)toneData.data(),
+                    (Uint32)(toneData.size() * sizeof(int16_t)));
+                if (chunk) {
+                    int channel = Mix_PlayChannel(1, chunk, 0);
+                    if (channel >= 0) {
+                        Uint32 timeout = SDL_GetTicks() + (Uint32)duration + 1000U;
+                        while (Mix_Playing(channel) != 0 &&
+                               !SDL_TICKS_PASSED(SDL_GetTicks(), timeout)) {
+                            SDL_Delay(1);
+                        }
+                        Mix_HaltChannel(channel);
+                        Mix_FreeChunk(chunk);
+                        return;
+                    }
+                    Mix_FreeChunk(chunk);
+                }
+            }
+        }
+    }
+#endif
+
+    if (!_audioReady) {
+        if (SDL_InitSubSystem(SDL_INIT_AUDIO) != 0) return;
+        _audioReady = true;
+    }
+
+    SDL_AudioSpec want;
+    SDL_AudioSpec have;
+    SDL_zero(want);
+    SDL_zero(have);
+    want.freq = 44100;
+    want.format = AUDIO_S16SYS;
+    want.channels = 2;
+    want.samples = 1024;
+    want.callback = NULL;
+
+    SDL_AudioDeviceID device = SDL_OpenAudioDevice(
+        NULL, 0, &want, &have,
+        SDL_AUDIO_ALLOW_FREQUENCY_CHANGE | SDL_AUDIO_ALLOW_CHANNELS_CHANGE);
+    if (device == 0) return;
+
+    if (have.freq <= 0 || have.channels <= 0 || have.format != AUDIO_S16SYS) {
+        SDL_CloseAudioDevice(device);
+        return;
+    }
+
+    std::vector<int16_t> toneData;
+    _gamelib_generate_beep_pcm(toneData, have.freq, have.channels, frequency, duration);
+    if (toneData.empty()) {
+        SDL_CloseAudioDevice(device);
+        return;
+    }
+
+    SDL_ClearQueuedAudio(device);
+    if (SDL_QueueAudio(device, toneData.data(),
+                       (Uint32)(toneData.size() * sizeof(int16_t))) == 0) {
+        Uint32 timeout = SDL_GetTicks() + (Uint32)duration + 500U;
+        SDL_PauseAudioDevice(device, 0);
+        while (SDL_GetQueuedAudioSize(device) > 0 &&
+               !SDL_TICKS_PASSED(SDL_GetTicks(), timeout)) {
+            SDL_Delay(1);
+        }
+        SDL_Delay(8);
+    }
+
+    SDL_CloseAudioDevice(device);
+}
+
+bool GameLib::PlayWAV(const char *filename, bool loop)
+{
+#if GAMELIB_SDL_HAS_MIXER
+    if (!filename) return false;
+    if (!_EnsureMixerReady()) return false;
+
+    StopWAV();
+    _currentWav = Mix_LoadWAV(filename);
+    if (!_currentWav) return false;
+
+    _wavChannel = Mix_PlayChannel(0, _currentWav, loop ? -1 : 0);
+    if (_wavChannel < 0) {
+        Mix_FreeChunk(_currentWav);
+        _currentWav = NULL;
+        return false;
+    }
+    return true;
+#else
+    (void)filename;
+    (void)loop;
+    return false;
+#endif
+}
+
+void GameLib::StopWAV()
+{
+#if GAMELIB_SDL_HAS_MIXER
+    if (_mixerReady) {
+        Mix_HaltChannel(0);
+        if (_currentWav) {
+            Mix_FreeChunk(_currentWav);
+            _currentWav = NULL;
+        }
+        _wavChannel = 0;
+    }
+#endif
+}
+
+#if GAMELIB_SDL_HAS_MIXER
+static char _gamelib_sdl_music_ascii_tolower(char ch)
+{
+    if (ch >= 'A' && ch <= 'Z') return (char)(ch - 'A' + 'a');
+    return ch;
+}
+
+static bool _gamelib_sdl_path_has_music_extension(const char *filename, const char *extension)
+{
+    if (!filename || !extension || !extension[0]) return false;
+
+    const char *dot = strrchr(filename, '.');
+    if (!dot || !dot[1]) return false;
+
+    const char *lhs = dot + 1;
+    const char *rhs = extension;
+    while (*lhs && *rhs) {
+        if (_gamelib_sdl_music_ascii_tolower(*lhs) != _gamelib_sdl_music_ascii_tolower(*rhs)) return false;
+        lhs++;
+        rhs++;
+    }
+    return *lhs == '\0' && *rhs == '\0';
+}
+
+static bool _gamelib_sdl_is_midi_music_path(const char *filename)
+{
+    return _gamelib_sdl_path_has_music_extension(filename, "mid") ||
+           _gamelib_sdl_path_has_music_extension(filename, "midi");
+}
+#endif
+
+bool GameLib::PlayMusic(const char *filename, bool loop)
+{
+#if GAMELIB_SDL_HAS_MIXER
+    if (!filename) return false;
+
+    if (_gamelib_sdl_is_midi_music_path(filename)) {
+        StopMusic();
+        return false;
+    }
+
+    if (!_EnsureMixerReady()) return false;
+
+    StopMusic();
+    _currentMusic = Mix_LoadMUS(filename);
+    if (!_currentMusic) return false;
+    if (Mix_PlayMusic(_currentMusic, loop ? -1 : 0) != 0) {
+        Mix_FreeMusic(_currentMusic);
+        _currentMusic = NULL;
+        return false;
+    }
+    _musicPlaying = true;
+    return true;
+#else
+    (void)filename;
+    (void)loop;
+    return false;
+#endif
+}
+
+void GameLib::StopMusic()
+{
+#if GAMELIB_SDL_HAS_MIXER
+    if (_mixerReady) {
+        Mix_HaltMusic();
+        if (_currentMusic) {
+            Mix_FreeMusic(_currentMusic);
+            _currentMusic = NULL;
+        }
+    }
+#endif
+    _musicPlaying = false;
+}
+
+bool GameLib::IsMusicPlaying() const
+{
+#if GAMELIB_SDL_HAS_MIXER
+    if (!_mixerReady || !_currentMusic) return false;
+    return _musicPlaying && Mix_PlayingMusic() != 0;
+#else
+    return false;
+#endif
+}
+
+int GameLib::Random(int minVal, int maxVal)
+{
+    if (minVal > maxVal) { int t = minVal; minVal = maxVal; maxVal = t; }
+    if (minVal == maxVal) return minVal;
+    return minVal + rand() % (maxVal - minVal + 1);
+}
+
+bool GameLib::RectOverlap(int x1, int y1, int w1, int h1,
+                          int x2, int y2, int w2, int h2)
+{
+    return !(x1 + w1 <= x2 || x2 + w2 <= x1 || y1 + h1 <= y2 || y2 + h2 <= y1);
+}
+
+bool GameLib::CircleOverlap(int cx1, int cy1, int r1,
+                            int cx2, int cy2, int r2)
+{
+    int64_t dx = cx1 - cx2;
+    int64_t dy = cy1 - cy2;
+    int64_t distSq = dx * dx + dy * dy;
+    int64_t rSum = r1 + r2;
+    return distSq <= rSum * rSum;
+}
+
+bool GameLib::PointInRect(int px, int py, int x, int y, int w, int h)
+{
+    return px >= x && px < x + w && py >= y && py < y + h;
+}
+
+float GameLib::Distance(int x1, int y1, int x2, int y2)
+{
+    float dx = (float)(x1 - x2);
+    float dy = (float)(y1 - y2);
+    return sqrtf(dx * dx + dy * dy);
+}
+
+void GameLib::SetScene(int scene)
+{
+    _pendingScene = scene;
+    _hasPendingScene = true;
+}
+
+int GameLib::GetScene() const { return _scene; }
+bool GameLib::IsSceneChanged() const { return _sceneChanged; }
+int GameLib::GetPreviousScene() const { return _previousScene; }
+
+void GameLib::DrawGrid(int x, int y, int rows, int cols, int cellSize, uint32_t color)
+{
+    for (int r = 0; r <= rows; r++) {
+        DrawLine(x, y + r * cellSize, x + cols * cellSize, y + r * cellSize, color);
+    }
+    for (int c = 0; c <= cols; c++) {
+        DrawLine(x + c * cellSize, y, x + c * cellSize, y + rows * cellSize, color);
+    }
+}
+
+void GameLib::FillCell(int gridX, int gridY, int row, int col, int cellSize, uint32_t color)
+{
+    FillRect(gridX + col * cellSize + 1, gridY + row * cellSize + 1,
+             cellSize - 1, cellSize - 1, color);
 }
 
 

@@ -362,12 +362,6 @@ public:
     void DrawTextScale(int x, int y, const char *text, uint32_t color, int scale);
     void DrawPrintf(int x, int y, uint32_t color, const char *fmt, ...);
 
-    // -------- UI Helpers (built-in 8x8 font) --------
-    bool Button(int x, int y, int w, int h, const char *text, uint32_t color);
-    bool Checkbox(int x, int y, const char *text, bool *checked);
-    bool RadioBox(int x, int y, const char *text, int *value, int index);
-    bool ToggleButton(int x, int y, int w, int h, const char *text, bool *toggled, uint32_t color);
-
     // -------- Font Text Rendering (scalable fonts, Unicode support) --------
     void DrawTextFont(int x, int y, const char *text, uint32_t color, const char *fontName, int fontSize);
     void DrawTextFont(int x, int y, const char *text, uint32_t color, int fontSize);
@@ -446,6 +440,12 @@ public:
     int GetScene() const;
     bool IsSceneChanged() const;
     int GetPreviousScene() const;
+
+    // -------- UI Helpers (built-in 8x8 font) --------
+    bool Button(int x, int y, int w, int h, const char *text, uint32_t color);
+    bool Checkbox(int x, int y, const char *text, bool *checked);
+    bool RadioBox(int x, int y, const char *text, int *value, int index);
+    bool ToggleButton(int x, int y, int w, int h, const char *text, bool *toggled, uint32_t color);
 
     // -------- Save / Load Data --------
     static bool SaveInt(const char *filename, const char *key, int value);
@@ -2672,247 +2672,6 @@ void GameLib::DrawPrintf(int x, int y, uint32_t color, const char *fmt, ...)
     DrawText(x, y, buf, color);
 }
 
-bool GameLib::Button(int x, int y, int w, int h, const char *text, uint32_t color)
-{
-    if (w <= 0 || h <= 0) return false;
-
-    uint32_t id = _gamelib_ui_make_id(0x42544E31u, x, y, w, h, text);
-    bool hovered = PointInRect(_mouseX, _mouseY, x, y, w, h);
-    bool mousePressed = IsMousePressed(MOUSE_LEFT);
-    bool mouseReleased = IsMouseReleased(MOUSE_LEFT);
-    bool mouseDown = IsMouseDown(MOUSE_LEFT);
-
-    if (mousePressed && hovered) {
-        _uiActiveId = id;
-    }
-
-    bool pressed = (_uiActiveId == id) && mouseDown && hovered;
-    uint32_t face = color;
-    if (pressed) face = _gamelib_ui_darken(color, 36);
-    else if (hovered) face = _gamelib_ui_lighten(color, 46);
-
-    _gamelib_ui_draw_bevel_rect(this, x, y, w, h, face, pressed);
-
-    int textWidth = _gamelib_ui_text_width(text);
-    int textHeight = _gamelib_ui_text_height(text);
-    int textX = x + ((w - textWidth) > 0 ? (w - textWidth) / 2 : 0);
-    int textY = y + ((h - textHeight) > 0 ? (h - textHeight) / 2 : 0);
-    if (pressed) {
-        textX += 1;
-        textY += 1;
-    }
-
-    uint32_t textColor = _gamelib_ui_button_text_color(face);
-    uint32_t shadowColor = (textColor == COLOR_WHITE)
-        ? COLOR_ARGB(160, 0, 0, 0)
-        : COLOR_ARGB(112, 255, 255, 255);
-    _gamelib_ui_draw_text_with_shadow(this, textX, textY, text, textColor, shadowColor);
-
-    bool clicked = mouseReleased && hovered && (_uiActiveId == id);
-    if (mouseReleased && _uiActiveId == id) {
-        _uiActiveId = 0;
-    }
-    return clicked;
-}
-
-bool GameLib::Checkbox(int x, int y, const char *text, bool *checked)
-{
-    if (!checked) return false;
-
-    const int boxSize = 16;
-    const int gap = (text && text[0]) ? 6 : 0;
-    int labelWidth = _gamelib_ui_text_width(text);
-    int labelHeight = _gamelib_ui_text_height(text);
-    int controlWidth = boxSize + gap + labelWidth;
-    int controlHeight = boxSize;
-    if (labelHeight > controlHeight) controlHeight = labelHeight;
-    if (controlWidth <= 0) controlWidth = boxSize;
-
-    int boxY = y + (controlHeight - boxSize) / 2;
-    int labelY = y + (controlHeight - labelHeight) / 2;
-    if (labelHeight <= 0) labelY = y + (controlHeight - 8) / 2;
-
-    uint32_t id = _gamelib_ui_make_id(0x43484B31u, x, y, controlWidth, controlHeight, text);
-    bool hovered = PointInRect(_mouseX, _mouseY, x, y, controlWidth, controlHeight);
-    bool mousePressed = IsMousePressed(MOUSE_LEFT);
-    bool mouseReleased = IsMouseReleased(MOUSE_LEFT);
-    bool mouseDown = IsMouseDown(MOUSE_LEFT);
-
-    if (mousePressed && hovered) {
-        _uiActiveId = id;
-    }
-
-    bool pressed = (_uiActiveId == id) && mouseDown && hovered;
-    uint32_t boxFace = hovered
-        ? _gamelib_ui_lighten(COLOR_RGB(182, 182, 182), 32)
-        : COLOR_RGB(182, 182, 182);
-    if (pressed) boxFace = _gamelib_ui_darken(boxFace, 28);
-    _gamelib_ui_draw_bevel_rect(this, x, boxY, boxSize, boxSize, boxFace, pressed);
-
-    if (*checked) {
-        uint32_t markColor = hovered ? COLOR_BLACK : COLOR_DARK_GRAY;
-        _gamelib_ui_draw_checkbox_mark(this, x, boxY, boxSize, pressed, markColor);
-    }
-
-    if (text && text[0]) {
-        uint32_t labelColor = hovered ? COLOR_WHITE : COLOR_LIGHT_GRAY;
-        _gamelib_ui_draw_text_with_shadow(this, x + boxSize + gap, labelY, text,
-                                          labelColor, COLOR_ARGB(160, 0, 0, 0));
-    }
-
-    bool changed = false;
-    if (mouseReleased && _uiActiveId == id) {
-        if (hovered) {
-            *checked = !*checked;
-            changed = true;
-        }
-        _uiActiveId = 0;
-    }
-    return changed;
-}
-
-static void _gamelib_ui_draw_radio_circle(GameLib *game, int x, int y, int size,
-                                           bool selected, bool pressed, uint32_t face,
-                                           uint32_t dotColor)
-{
-    if (!game || size <= 0) return;
-
-    int cx = x + size / 2;
-    int cy = y + size / 2;
-    int r = size / 2;
-    if (r < 4) r = 4;
-
-    if (pressed) {
-        cx += 1;
-        cy += 1;
-    }
-
-    game->FillCircle(cx, cy, r, face);
-
-    uint32_t lightColor = _gamelib_ui_lighten(face, 112);
-    uint32_t darkColor = _gamelib_ui_darken(face, 112);
-    if (pressed) {
-        uint32_t tmp = lightColor; lightColor = darkColor; darkColor = tmp;
-    }
-    game->DrawCircle(cx, cy, r, darkColor);
-    game->DrawCircle(cx, cy, r - 1, lightColor);
-
-    if (selected) {
-        int dotR = r / 2;
-        if (dotR < 3) dotR = 3;
-        game->FillCircle(cx, cy, dotR, dotColor);
-    }
-}
-
-bool GameLib::RadioBox(int x, int y, const char *text, int *value, int index)
-{
-    if (!value) return false;
-
-    const int boxSize = 16;
-    const int gap = (text && text[0]) ? 6 : 0;
-    int labelWidth = _gamelib_ui_text_width(text);
-    int labelHeight = _gamelib_ui_text_height(text);
-    int controlWidth = boxSize + gap + labelWidth;
-    int controlHeight = boxSize;
-    if (labelHeight > controlHeight) controlHeight = labelHeight;
-    if (controlWidth <= 0) controlWidth = boxSize;
-
-    int boxY = y + (controlHeight - boxSize) / 2;
-    int labelY = y + (controlHeight - labelHeight) / 2;
-    if (labelHeight <= 0) labelY = y + (controlHeight - 8) / 2;
-
-    uint32_t id = _gamelib_ui_make_id(0x52444F31u, x, y, controlWidth, controlHeight, text);
-    bool hovered = PointInRect(_mouseX, _mouseY, x, y, controlWidth, controlHeight);
-    bool mousePressed = IsMousePressed(MOUSE_LEFT);
-    bool mouseReleased = IsMouseReleased(MOUSE_LEFT);
-    bool mouseDown = IsMouseDown(MOUSE_LEFT);
-
-    if (mousePressed && hovered) {
-        _uiActiveId = id;
-    }
-
-    bool pressed = (_uiActiveId == id) && mouseDown && hovered;
-
-    bool willSelect = (mouseReleased && hovered && _uiActiveId == id) ? true : (*value == index);
-    uint32_t face = hovered
-        ? _gamelib_ui_lighten(COLOR_RGB(182, 182, 182), 32)
-        : COLOR_RGB(182, 182, 182);
-    if (pressed) face = _gamelib_ui_darken(face, 28);
-    uint32_t dotColor = hovered ? COLOR_BLACK : COLOR_DARK_GRAY;
-
-    _gamelib_ui_draw_radio_circle(this, x, boxY, boxSize, willSelect, pressed, face, dotColor);
-
-    if (text && text[0]) {
-        uint32_t labelColor = hovered ? COLOR_WHITE : COLOR_LIGHT_GRAY;
-        _gamelib_ui_draw_text_with_shadow(this, x + boxSize + gap, labelY, text,
-                                          labelColor, COLOR_ARGB(160, 0, 0, 0));
-    }
-
-    bool changed = false;
-    if (mouseReleased && _uiActiveId == id) {
-        if (hovered && *value != index) {
-            *value = index;
-            changed = true;
-        }
-        _uiActiveId = 0;
-    }
-    return changed;
-}
-
-bool GameLib::ToggleButton(int x, int y, int w, int h, const char *text,
-                           bool *toggled, uint32_t color)
-{
-    if (w <= 0 || h <= 0 || !toggled) return false;
-
-    uint32_t id = _gamelib_ui_make_id(0x54474231u, x, y, w, h, text);
-    bool hovered = PointInRect(_mouseX, _mouseY, x, y, w, h);
-    bool mousePressed = IsMousePressed(MOUSE_LEFT);
-    bool mouseReleased = IsMouseReleased(MOUSE_LEFT);
-    bool mouseDown = IsMouseDown(MOUSE_LEFT);
-
-    if (mousePressed && hovered) {
-        _uiActiveId = id;
-    }
-
-    bool pressed = (_uiActiveId == id) && mouseDown && hovered;
-
-    bool willToggle = (mouseReleased && hovered && _uiActiveId == id);
-    bool on = willToggle ? !*toggled : *toggled;
-
-    bool bevelPressed = pressed || on;
-    uint32_t face = color;
-    if (on && !pressed) face = _gamelib_ui_darken(color, 24);
-    else if (pressed) face = _gamelib_ui_darken(color, 36);
-    else if (hovered) face = _gamelib_ui_lighten(color, 46);
-
-    _gamelib_ui_draw_bevel_rect(this, x, y, w, h, face, bevelPressed);
-
-    int textWidth = _gamelib_ui_text_width(text);
-    int textHeight = _gamelib_ui_text_height(text);
-    int textX = x + ((w - textWidth) > 0 ? (w - textWidth) / 2 : 0);
-    int textY = y + ((h - textHeight) > 0 ? (h - textHeight) / 2 : 0);
-    if (bevelPressed) {
-        textX += 1;
-        textY += 1;
-    }
-
-    uint32_t textColor = _gamelib_ui_button_text_color(face);
-    uint32_t shadowColor = (textColor == COLOR_WHITE)
-        ? COLOR_ARGB(160, 0, 0, 0)
-        : COLOR_ARGB(112, 255, 255, 255);
-    _gamelib_ui_draw_text_with_shadow(this, textX, textY, text, textColor, shadowColor);
-
-    bool changed = false;
-    if (mouseReleased && _uiActiveId == id) {
-        if (hovered) {
-            *toggled = !*toggled;
-            changed = true;
-        }
-        _uiActiveId = 0;
-    }
-    return changed;
-}
-
 
 //=====================================================================
 // Font Text Rendering (current Windows backend: GDI)
@@ -3962,6 +3721,357 @@ uint32_t GameLib::GetSpriteColorKey(int id) const
 
 
 //=====================================================================
+// Tilemap System
+//=====================================================================
+
+int GameLib::_AllocTilemapSlot()
+{
+    for (size_t i = 0; i < _tilemaps.size(); i++) {
+        if (!_tilemaps[i].used) return (int)i;
+    }
+    GameTilemap tm;
+    tm.cols = 0;
+    tm.rows = 0;
+    tm.tileSize = 0;
+    tm.tilesetId = -1;
+    tm.tilesetCols = 0;
+    tm.tiles = NULL;
+    tm.used = false;
+    _tilemaps.push_back(tm);
+    return (int)(_tilemaps.size() - 1);
+}
+
+int GameLib::CreateTilemap(int cols, int rows, int tileSize, int tilesetId)
+{
+    if (cols <= 0 || rows <= 0 || tileSize <= 0) return -1;
+    if (tilesetId < 0 || tilesetId >= (int)_sprites.size()) return -1;
+    if (!_sprites[tilesetId].used) return -1;
+
+    if (cols > 4096 || rows > 4096) return -1;  // prevent overflow
+    int tileCount = _GetTilesetTileCount(tilesetId, tileSize);
+    if (tileCount <= 0) return -1;
+    int id = _AllocTilemapSlot();
+    int *tiles = (int*)malloc((size_t)cols * rows * sizeof(int));
+    if (!tiles) return -1;
+    for (int i = 0; i < cols * rows; i++) tiles[i] = -1;
+
+    _tilemaps[id].cols = cols;
+    _tilemaps[id].rows = rows;
+    _tilemaps[id].tileSize = tileSize;
+    _tilemaps[id].tilesetId = tilesetId;
+    _tilemaps[id].tilesetCols = _sprites[tilesetId].width / tileSize;
+    _tilemaps[id].tiles = tiles;
+    _tilemaps[id].used = true;
+
+    return id;
+}
+
+bool GameLib::SaveTilemap(const char *filename, int mapId) const
+{
+    if (!filename) return false;
+    if (mapId < 0 || mapId >= (int)_tilemaps.size()) return false;
+    if (!_tilemaps[mapId].used) return false;
+
+    const GameTilemap &tm = _tilemaps[mapId];
+    FILE *fp = _gamelib_fopen_utf8(filename, L"wb");
+    if (!fp) return false;
+
+    if (fprintf(fp, "GLM1\n%d %d %d\n", tm.tileSize, tm.rows, tm.cols) < 0) {
+        fclose(fp);
+        return false;
+    }
+
+    for (int row = 0; row < tm.rows; row++) {
+        for (int col = 0; col < tm.cols; col++) {
+            if (col > 0 && fputc(' ', fp) == EOF) {
+                fclose(fp);
+                return false;
+            }
+            if (fprintf(fp, "%d", tm.tiles[row * tm.cols + col]) < 0) {
+                fclose(fp);
+                return false;
+            }
+        }
+        if (fputc('\n', fp) == EOF) {
+            fclose(fp);
+            return false;
+        }
+    }
+
+    return fclose(fp) == 0;
+}
+
+int GameLib::LoadTilemap(const char *filename, int tilesetId)
+{
+    if (!filename) return -1;
+
+    FILE *fp = _gamelib_fopen_utf8(filename, L"rb");
+    if (!fp) return -1;
+
+    std::string line;
+    if (!_gamelib_read_text_line(fp, line)) {
+        fclose(fp);
+        return -1;
+    }
+    _gamelib_strip_utf8_bom(line);
+    if (line != "GLM1") {
+        fclose(fp);
+        return -1;
+    }
+
+    if (!_gamelib_read_text_line(fp, line)) {
+        fclose(fp);
+        return -1;
+    }
+
+    int header[3];
+    int headerCount = 0;
+    if (!_gamelib_parse_int_tokens(line, header, 3, &headerCount) || headerCount < 3) {
+        fclose(fp);
+        return -1;
+    }
+
+    int tileSize = header[0];
+    int rows = header[1];
+    int cols = header[2];
+    int mapId = CreateTilemap(cols, rows, tileSize, tilesetId);
+    if (mapId < 0) {
+        fclose(fp);
+        return -1;
+    }
+
+    for (int row = 0; row < rows; row++) {
+        if (!_gamelib_read_text_line(fp, line)) break;
+
+        int count = 0;
+        int *rowPtr = _tilemaps[mapId].tiles + row * cols;
+        if (!_gamelib_parse_int_tokens(line, rowPtr, cols, &count)) {
+            FreeTilemap(mapId);
+            fclose(fp);
+            return -1;
+        }
+        for (int col = 0; col < count; col++) {
+            if (rowPtr[col] < -1) {
+                FreeTilemap(mapId);
+                fclose(fp);
+                return -1;
+            }
+        }
+    }
+
+    fclose(fp);
+    return mapId;
+}
+
+void GameLib::FreeTilemap(int mapId)
+{
+    if (mapId < 0 || mapId >= (int)_tilemaps.size()) return;
+    if (!_tilemaps[mapId].used) return;
+    if (_tilemaps[mapId].tiles) {
+        free(_tilemaps[mapId].tiles);
+        _tilemaps[mapId].tiles = NULL;
+    }
+    _tilemaps[mapId].tilesetId = -1;
+    _tilemaps[mapId].tilesetCols = 0;
+    _tilemaps[mapId].used = false;
+}
+
+void GameLib::SetTile(int mapId, int col, int row, int tileId)
+{
+    if (mapId < 0 || mapId >= (int)_tilemaps.size()) return;
+    if (!_tilemaps[mapId].used) return;
+    if (col < 0 || col >= _tilemaps[mapId].cols) return;
+    if (row < 0 || row >= _tilemaps[mapId].rows) return;
+    if (tileId < -1) return;
+    _tilemaps[mapId].tiles[row * _tilemaps[mapId].cols + col] = tileId;
+}
+
+int GameLib::GetTile(int mapId, int col, int row) const
+{
+    if (mapId < 0 || mapId >= (int)_tilemaps.size()) return -1;
+    if (!_tilemaps[mapId].used) return -1;
+    if (col < 0 || col >= _tilemaps[mapId].cols) return -1;
+    if (row < 0 || row >= _tilemaps[mapId].rows) return -1;
+    return _tilemaps[mapId].tiles[row * _tilemaps[mapId].cols + col];
+}
+
+static int _gamelib_floor_div(int value, int divisor)
+{
+    if (divisor <= 0) return 0;
+    int q = value / divisor;
+    int r = value % divisor;
+    if (r != 0 && ((r > 0) != (divisor > 0))) q--;
+    return q;
+}
+
+int GameLib::GetTilemapCols(int mapId) const
+{
+    if (mapId < 0 || mapId >= (int)_tilemaps.size()) return 0;
+    if (!_tilemaps[mapId].used) return 0;
+    return _tilemaps[mapId].cols;
+}
+
+int GameLib::GetTilemapRows(int mapId) const
+{
+    if (mapId < 0 || mapId >= (int)_tilemaps.size()) return 0;
+    if (!_tilemaps[mapId].used) return 0;
+    return _tilemaps[mapId].rows;
+}
+
+int GameLib::GetTileSize(int mapId) const
+{
+    if (mapId < 0 || mapId >= (int)_tilemaps.size()) return 0;
+    if (!_tilemaps[mapId].used) return 0;
+    return _tilemaps[mapId].tileSize;
+}
+
+int GameLib::WorldToTileCol(int mapId, int x) const
+{
+    if (mapId < 0 || mapId >= (int)_tilemaps.size()) return 0;
+    if (!_tilemaps[mapId].used) return 0;
+    return _gamelib_floor_div(x, _tilemaps[mapId].tileSize);
+}
+
+int GameLib::WorldToTileRow(int mapId, int y) const
+{
+    if (mapId < 0 || mapId >= (int)_tilemaps.size()) return 0;
+    if (!_tilemaps[mapId].used) return 0;
+    return _gamelib_floor_div(y, _tilemaps[mapId].tileSize);
+}
+
+int GameLib::GetTileAtPixel(int mapId, int x, int y) const
+{
+    return GetTile(mapId, WorldToTileCol(mapId, x), WorldToTileRow(mapId, y));
+}
+
+void GameLib::FillTileRect(int mapId, int col, int row, int cols, int rows, int tileId)
+{
+    if (mapId < 0 || mapId >= (int)_tilemaps.size()) return;
+    if (!_tilemaps[mapId].used) return;
+    if (cols <= 0 || rows <= 0) return;
+    if (tileId < -1) return;
+
+    GameTilemap &tm = _tilemaps[mapId];
+    int col0 = col;
+    int row0 = row;
+    int col1 = col + cols;
+    int row1 = row + rows;
+
+    if (col0 < 0) col0 = 0;
+    if (row0 < 0) row0 = 0;
+    if (col1 > tm.cols) col1 = tm.cols;
+    if (row1 > tm.rows) row1 = tm.rows;
+    if (col0 >= col1 || row0 >= row1) return;
+
+    for (int r = row0; r < row1; r++) {
+        int *rowPtr = tm.tiles + r * tm.cols;
+        for (int c = col0; c < col1; c++) {
+            rowPtr[c] = tileId;
+        }
+    }
+}
+
+void GameLib::ClearTilemap(int mapId, int tileId)
+{
+    if (mapId < 0 || mapId >= (int)_tilemaps.size()) return;
+    if (!_tilemaps[mapId].used) return;
+    if (tileId < -1) return;
+
+    GameTilemap &tm = _tilemaps[mapId];
+    int count = tm.cols * tm.rows;
+    for (int i = 0; i < count; i++) {
+        tm.tiles[i] = tileId;
+    }
+}
+
+int GameLib::_GetTilesetTileCount(int tilesetId, int tileSize) const
+{
+    if (tileSize <= 0) return 0;
+    if (tilesetId < 0 || tilesetId >= (int)_sprites.size()) return 0;
+    if (!_sprites[tilesetId].used) return 0;
+
+    int cols = _sprites[tilesetId].width / tileSize;
+    int rows = _sprites[tilesetId].height / tileSize;
+    if (cols <= 0 || rows <= 0) return 0;
+    return cols * rows;
+}
+
+void GameLib::DrawTilemap(int mapId, int x, int y, int flags)
+{
+    if (mapId < 0 || mapId >= (int)_tilemaps.size()) return;
+    if (!_tilemaps[mapId].used) return;
+
+    GameTilemap &tm = _tilemaps[mapId];
+    int tsId = tm.tilesetId;
+    if (tsId < 0 || tsId >= (int)_sprites.size()) return;
+    if (!_sprites[tsId].used) return;
+
+    GameSprite &tset = _sprites[tsId];
+    int ts = tm.tileSize;
+    int tsCols = tset.width / ts;
+    int tileCount = _GetTilesetTileCount(tsId, ts);
+    tm.tilesetCols = tsCols;
+    if (tsCols <= 0 || tileCount <= 0 || _clipW <= 0 || _clipH <= 0) return;
+
+    int clipX0 = _clipX;
+    int clipY0 = _clipY;
+    int clipX1 = _clipX + _clipW;
+    int clipY1 = _clipY + _clipH;
+
+    // Calculate visible tile range on screen, avoid traversing the whole map
+    int col0 = (clipX0 - x) / ts;
+    int row0 = (clipY0 - y) / ts;
+    int col1 = (clipX1 - 1 - x) / ts + 1;
+    int row1 = (clipY1 - 1 - y) / ts + 1;
+    if (col0 < 0) col0 = 0;
+    if (row0 < 0) row0 = 0;
+    if (col1 > tm.cols) col1 = tm.cols;
+    if (row1 > tm.rows) row1 = tm.rows;
+
+    bool useAlpha    = (flags & SPRITE_ALPHA) != 0;
+    bool useColorKey = (flags & SPRITE_COLORKEY) != 0;
+    int tileFlags = flags & (SPRITE_ALPHA | SPRITE_COLORKEY);
+    bool canMemcpyTiles = !useAlpha && !useColorKey;
+
+    for (int r = row0; r < row1; r++) {
+        for (int c = col0; c < col1; c++) {
+            int tid = tm.tiles[r * tm.cols + c];
+            if (tid < 0 || tid >= tileCount) continue;
+
+            // Pixel start position of this tile in tileset
+            int srcCol = tid % tsCols;
+            int srcRow = tid / tsCols;
+            int srcX0 = srcCol * ts;
+            int srcY0 = srcRow * ts;
+
+            // Screen destination position
+            int dstX0 = x + c * ts;
+            int dstY0 = y + r * ts;
+
+            if (canMemcpyTiles) {
+                int ix0 = 0, iy0 = 0, ix1 = ts, iy1 = ts;
+                if (dstX0 < clipX0) ix0 = clipX0 - dstX0;
+                if (dstY0 < clipY0) iy0 = clipY0 - dstY0;
+                if (dstX0 + ix1 > clipX1)  ix1 = clipX1 - dstX0;
+                if (dstY0 + iy1 > clipY1) iy1 = clipY1 - dstY0;
+                if (ix0 >= ix1 || iy0 >= iy1) continue;
+
+                int copyPixels = ix1 - ix0;
+                int dstX = dstX0 + ix0;
+                for (int iy = iy0; iy < iy1; iy++) {
+                    const uint32_t *srcRow_ = tset.pixels + (srcY0 + iy) * tset.width;
+                    uint32_t *dstRow_ = _framebuffer + (dstY0 + iy) * _width;
+                    memcpy(dstRow_ + dstX, srcRow_ + srcX0 + ix0, (size_t)copyPixels * sizeof(uint32_t));
+                }
+            } else {
+                _DrawSpriteAreaFast(tsId, dstX0, dstY0, srcX0, srcY0, ts, ts, tileFlags);
+            }
+        }
+    }
+}
+
+
+//=====================================================================
 // Input System
 //=====================================================================
 
@@ -4179,355 +4289,249 @@ void GameLib::FillCell(int gridX, int gridY, int row, int col, int cellSize, uin
              cellSize - 1, cellSize - 1, color);
 }
 
-static int _gamelib_floor_div(int value, int divisor)
-{
-    if (divisor <= 0) return 0;
-    int q = value / divisor;
-    int r = value % divisor;
-    if (r != 0 && ((r > 0) != (divisor > 0))) q--;
-    return q;
-}
-
-int GameLib::_GetTilesetTileCount(int tilesetId, int tileSize) const
-{
-    if (tileSize <= 0) return 0;
-    if (tilesetId < 0 || tilesetId >= (int)_sprites.size()) return 0;
-    if (!_sprites[tilesetId].used) return 0;
-
-    int cols = _sprites[tilesetId].width / tileSize;
-    int rows = _sprites[tilesetId].height / tileSize;
-    if (cols <= 0 || rows <= 0) return 0;
-    return cols * rows;
-}
-
 
 //=====================================================================
-// Tilemap System
+// UI System
 //=====================================================================
-
-int GameLib::_AllocTilemapSlot()
+bool GameLib::Button(int x, int y, int w, int h, const char *text, uint32_t color)
 {
-    for (size_t i = 0; i < _tilemaps.size(); i++) {
-        if (!_tilemaps[i].used) return (int)i;
-    }
-    GameTilemap tm;
-    tm.cols = 0;
-    tm.rows = 0;
-    tm.tileSize = 0;
-    tm.tilesetId = -1;
-    tm.tilesetCols = 0;
-    tm.tiles = NULL;
-    tm.used = false;
-    _tilemaps.push_back(tm);
-    return (int)(_tilemaps.size() - 1);
-}
+    if (w <= 0 || h <= 0) return false;
 
-int GameLib::CreateTilemap(int cols, int rows, int tileSize, int tilesetId)
-{
-    if (cols <= 0 || rows <= 0 || tileSize <= 0) return -1;
-    if (tilesetId < 0 || tilesetId >= (int)_sprites.size()) return -1;
-    if (!_sprites[tilesetId].used) return -1;
+    uint32_t id = _gamelib_ui_make_id(0x42544E31u, x, y, w, h, text);
+    bool hovered = PointInRect(_mouseX, _mouseY, x, y, w, h);
+    bool mousePressed = IsMousePressed(MOUSE_LEFT);
+    bool mouseReleased = IsMouseReleased(MOUSE_LEFT);
+    bool mouseDown = IsMouseDown(MOUSE_LEFT);
 
-    if (cols > 4096 || rows > 4096) return -1;  // prevent overflow
-    int tileCount = _GetTilesetTileCount(tilesetId, tileSize);
-    if (tileCount <= 0) return -1;
-    int id = _AllocTilemapSlot();
-    int *tiles = (int*)malloc((size_t)cols * rows * sizeof(int));
-    if (!tiles) return -1;
-    for (int i = 0; i < cols * rows; i++) tiles[i] = -1;
-
-    _tilemaps[id].cols = cols;
-    _tilemaps[id].rows = rows;
-    _tilemaps[id].tileSize = tileSize;
-    _tilemaps[id].tilesetId = tilesetId;
-    _tilemaps[id].tilesetCols = _sprites[tilesetId].width / tileSize;
-    _tilemaps[id].tiles = tiles;
-    _tilemaps[id].used = true;
-
-    return id;
-}
-
-bool GameLib::SaveTilemap(const char *filename, int mapId) const
-{
-    if (!filename) return false;
-    if (mapId < 0 || mapId >= (int)_tilemaps.size()) return false;
-    if (!_tilemaps[mapId].used) return false;
-
-    const GameTilemap &tm = _tilemaps[mapId];
-    FILE *fp = _gamelib_fopen_utf8(filename, L"wb");
-    if (!fp) return false;
-
-    if (fprintf(fp, "GLM1\n%d %d %d\n", tm.tileSize, tm.rows, tm.cols) < 0) {
-        fclose(fp);
-        return false;
+    if (mousePressed && hovered) {
+        _uiActiveId = id;
     }
 
-    for (int row = 0; row < tm.rows; row++) {
-        for (int col = 0; col < tm.cols; col++) {
-            if (col > 0 && fputc(' ', fp) == EOF) {
-                fclose(fp);
-                return false;
-            }
-            if (fprintf(fp, "%d", tm.tiles[row * tm.cols + col]) < 0) {
-                fclose(fp);
-                return false;
-            }
+    bool pressed = (_uiActiveId == id) && mouseDown && hovered;
+    uint32_t face = color;
+    if (pressed) face = _gamelib_ui_darken(color, 36);
+    else if (hovered) face = _gamelib_ui_lighten(color, 46);
+
+    _gamelib_ui_draw_bevel_rect(this, x, y, w, h, face, pressed);
+
+    int textWidth = _gamelib_ui_text_width(text);
+    int textHeight = _gamelib_ui_text_height(text);
+    int textX = x + ((w - textWidth) > 0 ? (w - textWidth) / 2 : 0);
+    int textY = y + ((h - textHeight) > 0 ? (h - textHeight) / 2 : 0);
+    if (pressed) {
+        textX += 1;
+        textY += 1;
+    }
+
+    uint32_t textColor = _gamelib_ui_button_text_color(face);
+    uint32_t shadowColor = (textColor == COLOR_WHITE)
+        ? COLOR_ARGB(160, 0, 0, 0)
+        : COLOR_ARGB(112, 255, 255, 255);
+    _gamelib_ui_draw_text_with_shadow(this, textX, textY, text, textColor, shadowColor);
+
+    bool clicked = mouseReleased && hovered && (_uiActiveId == id);
+    if (mouseReleased && _uiActiveId == id) {
+        _uiActiveId = 0;
+    }
+    return clicked;
+}
+
+bool GameLib::Checkbox(int x, int y, const char *text, bool *checked)
+{
+    if (!checked) return false;
+
+    const int boxSize = 16;
+    const int gap = (text && text[0]) ? 6 : 0;
+    int labelWidth = _gamelib_ui_text_width(text);
+    int labelHeight = _gamelib_ui_text_height(text);
+    int controlWidth = boxSize + gap + labelWidth;
+    int controlHeight = boxSize;
+    if (labelHeight > controlHeight) controlHeight = labelHeight;
+    if (controlWidth <= 0) controlWidth = boxSize;
+
+    int boxY = y + (controlHeight - boxSize) / 2;
+    int labelY = y + (controlHeight - labelHeight) / 2;
+    if (labelHeight <= 0) labelY = y + (controlHeight - 8) / 2;
+
+    uint32_t id = _gamelib_ui_make_id(0x43484B31u, x, y, controlWidth, controlHeight, text);
+    bool hovered = PointInRect(_mouseX, _mouseY, x, y, controlWidth, controlHeight);
+    bool mousePressed = IsMousePressed(MOUSE_LEFT);
+    bool mouseReleased = IsMouseReleased(MOUSE_LEFT);
+    bool mouseDown = IsMouseDown(MOUSE_LEFT);
+
+    if (mousePressed && hovered) {
+        _uiActiveId = id;
+    }
+
+    bool pressed = (_uiActiveId == id) && mouseDown && hovered;
+    uint32_t boxFace = hovered
+        ? _gamelib_ui_lighten(COLOR_RGB(182, 182, 182), 32)
+        : COLOR_RGB(182, 182, 182);
+    if (pressed) boxFace = _gamelib_ui_darken(boxFace, 28);
+    _gamelib_ui_draw_bevel_rect(this, x, boxY, boxSize, boxSize, boxFace, pressed);
+
+    if (*checked) {
+        uint32_t markColor = hovered ? COLOR_BLACK : COLOR_DARK_GRAY;
+        _gamelib_ui_draw_checkbox_mark(this, x, boxY, boxSize, pressed, markColor);
+    }
+
+    if (text && text[0]) {
+        uint32_t labelColor = hovered ? COLOR_WHITE : COLOR_LIGHT_GRAY;
+        _gamelib_ui_draw_text_with_shadow(this, x + boxSize + gap, labelY, text,
+                                          labelColor, COLOR_ARGB(160, 0, 0, 0));
+    }
+
+    bool changed = false;
+    if (mouseReleased && _uiActiveId == id) {
+        if (hovered) {
+            *checked = !*checked;
+            changed = true;
         }
-        if (fputc('\n', fp) == EOF) {
-            fclose(fp);
-            return false;
+        _uiActiveId = 0;
+    }
+    return changed;
+}
+
+static void _gamelib_ui_draw_radio_circle(GameLib *game, int x, int y, int size,
+                                           bool selected, bool pressed, uint32_t face,
+                                           uint32_t dotColor)
+{
+    if (!game || size <= 0) return;
+
+    int cx = x + size / 2;
+    int cy = y + size / 2;
+    int r = size / 2;
+    if (r < 4) r = 4;
+
+    if (pressed) {
+        cx += 1;
+        cy += 1;
+    }
+
+    game->FillCircle(cx, cy, r, face);
+
+    uint32_t lightColor = _gamelib_ui_lighten(face, 112);
+    uint32_t darkColor = _gamelib_ui_darken(face, 112);
+    if (pressed) {
+        uint32_t tmp = lightColor; lightColor = darkColor; darkColor = tmp;
+    }
+    game->DrawCircle(cx, cy, r, darkColor);
+    game->DrawCircle(cx, cy, r - 1, lightColor);
+
+    if (selected) {
+        int dotR = r / 2;
+        if (dotR < 3) dotR = 3;
+        game->FillCircle(cx, cy, dotR, dotColor);
+    }
+}
+
+bool GameLib::RadioBox(int x, int y, const char *text, int *value, int index)
+{
+    if (!value) return false;
+
+    const int boxSize = 16;
+    const int gap = (text && text[0]) ? 6 : 0;
+    int labelWidth = _gamelib_ui_text_width(text);
+    int labelHeight = _gamelib_ui_text_height(text);
+    int controlWidth = boxSize + gap + labelWidth;
+    int controlHeight = boxSize;
+    if (labelHeight > controlHeight) controlHeight = labelHeight;
+    if (controlWidth <= 0) controlWidth = boxSize;
+
+    int boxY = y + (controlHeight - boxSize) / 2;
+    int labelY = y + (controlHeight - labelHeight) / 2;
+    if (labelHeight <= 0) labelY = y + (controlHeight - 8) / 2;
+
+    uint32_t id = _gamelib_ui_make_id(0x52444F31u, x, y, controlWidth, controlHeight, text);
+    bool hovered = PointInRect(_mouseX, _mouseY, x, y, controlWidth, controlHeight);
+    bool mousePressed = IsMousePressed(MOUSE_LEFT);
+    bool mouseReleased = IsMouseReleased(MOUSE_LEFT);
+    bool mouseDown = IsMouseDown(MOUSE_LEFT);
+
+    if (mousePressed && hovered) {
+        _uiActiveId = id;
+    }
+
+    bool pressed = (_uiActiveId == id) && mouseDown && hovered;
+
+    bool willSelect = (mouseReleased && hovered && _uiActiveId == id) ? true : (*value == index);
+    uint32_t face = hovered
+        ? _gamelib_ui_lighten(COLOR_RGB(182, 182, 182), 32)
+        : COLOR_RGB(182, 182, 182);
+    if (pressed) face = _gamelib_ui_darken(face, 28);
+    uint32_t dotColor = hovered ? COLOR_BLACK : COLOR_DARK_GRAY;
+
+    _gamelib_ui_draw_radio_circle(this, x, boxY, boxSize, willSelect, pressed, face, dotColor);
+
+    if (text && text[0]) {
+        uint32_t labelColor = hovered ? COLOR_WHITE : COLOR_LIGHT_GRAY;
+        _gamelib_ui_draw_text_with_shadow(this, x + boxSize + gap, labelY, text,
+                                          labelColor, COLOR_ARGB(160, 0, 0, 0));
+    }
+
+    bool changed = false;
+    if (mouseReleased && _uiActiveId == id) {
+        if (hovered && *value != index) {
+            *value = index;
+            changed = true;
         }
+        _uiActiveId = 0;
     }
-
-    return fclose(fp) == 0;
+    return changed;
 }
 
-int GameLib::LoadTilemap(const char *filename, int tilesetId)
+bool GameLib::ToggleButton(int x, int y, int w, int h, const char *text,
+                           bool *toggled, uint32_t color)
 {
-    if (!filename) return -1;
+    if (w <= 0 || h <= 0 || !toggled) return false;
 
-    FILE *fp = _gamelib_fopen_utf8(filename, L"rb");
-    if (!fp) return -1;
+    uint32_t id = _gamelib_ui_make_id(0x54474231u, x, y, w, h, text);
+    bool hovered = PointInRect(_mouseX, _mouseY, x, y, w, h);
+    bool mousePressed = IsMousePressed(MOUSE_LEFT);
+    bool mouseReleased = IsMouseReleased(MOUSE_LEFT);
+    bool mouseDown = IsMouseDown(MOUSE_LEFT);
 
-    std::string line;
-    if (!_gamelib_read_text_line(fp, line)) {
-        fclose(fp);
-        return -1;
-    }
-    _gamelib_strip_utf8_bom(line);
-    if (line != "GLM1") {
-        fclose(fp);
-        return -1;
+    if (mousePressed && hovered) {
+        _uiActiveId = id;
     }
 
-    if (!_gamelib_read_text_line(fp, line)) {
-        fclose(fp);
-        return -1;
+    bool pressed = (_uiActiveId == id) && mouseDown && hovered;
+
+    bool willToggle = (mouseReleased && hovered && _uiActiveId == id);
+    bool on = willToggle ? !*toggled : *toggled;
+
+    bool bevelPressed = pressed || on;
+    uint32_t face = color;
+    if (on && !pressed) face = _gamelib_ui_darken(color, 24);
+    else if (pressed) face = _gamelib_ui_darken(color, 36);
+    else if (hovered) face = _gamelib_ui_lighten(color, 46);
+
+    _gamelib_ui_draw_bevel_rect(this, x, y, w, h, face, bevelPressed);
+
+    int textWidth = _gamelib_ui_text_width(text);
+    int textHeight = _gamelib_ui_text_height(text);
+    int textX = x + ((w - textWidth) > 0 ? (w - textWidth) / 2 : 0);
+    int textY = y + ((h - textHeight) > 0 ? (h - textHeight) / 2 : 0);
+    if (bevelPressed) {
+        textX += 1;
+        textY += 1;
     }
 
-    int header[3];
-    int headerCount = 0;
-    if (!_gamelib_parse_int_tokens(line, header, 3, &headerCount) || headerCount < 3) {
-        fclose(fp);
-        return -1;
-    }
+    uint32_t textColor = _gamelib_ui_button_text_color(face);
+    uint32_t shadowColor = (textColor == COLOR_WHITE)
+        ? COLOR_ARGB(160, 0, 0, 0)
+        : COLOR_ARGB(112, 255, 255, 255);
+    _gamelib_ui_draw_text_with_shadow(this, textX, textY, text, textColor, shadowColor);
 
-    int tileSize = header[0];
-    int rows = header[1];
-    int cols = header[2];
-    int mapId = CreateTilemap(cols, rows, tileSize, tilesetId);
-    if (mapId < 0) {
-        fclose(fp);
-        return -1;
-    }
-
-    for (int row = 0; row < rows; row++) {
-        if (!_gamelib_read_text_line(fp, line)) break;
-
-        int count = 0;
-        int *rowPtr = _tilemaps[mapId].tiles + row * cols;
-        if (!_gamelib_parse_int_tokens(line, rowPtr, cols, &count)) {
-            FreeTilemap(mapId);
-            fclose(fp);
-            return -1;
+    bool changed = false;
+    if (mouseReleased && _uiActiveId == id) {
+        if (hovered) {
+            *toggled = !*toggled;
+            changed = true;
         }
-        for (int col = 0; col < count; col++) {
-            if (rowPtr[col] < -1) {
-                FreeTilemap(mapId);
-                fclose(fp);
-                return -1;
-            }
-        }
+        _uiActiveId = 0;
     }
-
-    fclose(fp);
-    return mapId;
-}
-
-void GameLib::FreeTilemap(int mapId)
-{
-    if (mapId < 0 || mapId >= (int)_tilemaps.size()) return;
-    if (!_tilemaps[mapId].used) return;
-    if (_tilemaps[mapId].tiles) {
-        free(_tilemaps[mapId].tiles);
-        _tilemaps[mapId].tiles = NULL;
-    }
-    _tilemaps[mapId].tilesetId = -1;
-    _tilemaps[mapId].tilesetCols = 0;
-    _tilemaps[mapId].used = false;
-}
-
-void GameLib::SetTile(int mapId, int col, int row, int tileId)
-{
-    if (mapId < 0 || mapId >= (int)_tilemaps.size()) return;
-    if (!_tilemaps[mapId].used) return;
-    if (col < 0 || col >= _tilemaps[mapId].cols) return;
-    if (row < 0 || row >= _tilemaps[mapId].rows) return;
-    if (tileId < -1) return;
-    _tilemaps[mapId].tiles[row * _tilemaps[mapId].cols + col] = tileId;
-}
-
-int GameLib::GetTile(int mapId, int col, int row) const
-{
-    if (mapId < 0 || mapId >= (int)_tilemaps.size()) return -1;
-    if (!_tilemaps[mapId].used) return -1;
-    if (col < 0 || col >= _tilemaps[mapId].cols) return -1;
-    if (row < 0 || row >= _tilemaps[mapId].rows) return -1;
-    return _tilemaps[mapId].tiles[row * _tilemaps[mapId].cols + col];
-}
-
-int GameLib::GetTilemapCols(int mapId) const
-{
-    if (mapId < 0 || mapId >= (int)_tilemaps.size()) return 0;
-    if (!_tilemaps[mapId].used) return 0;
-    return _tilemaps[mapId].cols;
-}
-
-int GameLib::GetTilemapRows(int mapId) const
-{
-    if (mapId < 0 || mapId >= (int)_tilemaps.size()) return 0;
-    if (!_tilemaps[mapId].used) return 0;
-    return _tilemaps[mapId].rows;
-}
-
-int GameLib::GetTileSize(int mapId) const
-{
-    if (mapId < 0 || mapId >= (int)_tilemaps.size()) return 0;
-    if (!_tilemaps[mapId].used) return 0;
-    return _tilemaps[mapId].tileSize;
-}
-
-int GameLib::WorldToTileCol(int mapId, int x) const
-{
-    if (mapId < 0 || mapId >= (int)_tilemaps.size()) return 0;
-    if (!_tilemaps[mapId].used) return 0;
-    return _gamelib_floor_div(x, _tilemaps[mapId].tileSize);
-}
-
-int GameLib::WorldToTileRow(int mapId, int y) const
-{
-    if (mapId < 0 || mapId >= (int)_tilemaps.size()) return 0;
-    if (!_tilemaps[mapId].used) return 0;
-    return _gamelib_floor_div(y, _tilemaps[mapId].tileSize);
-}
-
-int GameLib::GetTileAtPixel(int mapId, int x, int y) const
-{
-    return GetTile(mapId, WorldToTileCol(mapId, x), WorldToTileRow(mapId, y));
-}
-
-void GameLib::FillTileRect(int mapId, int col, int row, int cols, int rows, int tileId)
-{
-    if (mapId < 0 || mapId >= (int)_tilemaps.size()) return;
-    if (!_tilemaps[mapId].used) return;
-    if (cols <= 0 || rows <= 0) return;
-    if (tileId < -1) return;
-
-    GameTilemap &tm = _tilemaps[mapId];
-    int col0 = col;
-    int row0 = row;
-    int col1 = col + cols;
-    int row1 = row + rows;
-
-    if (col0 < 0) col0 = 0;
-    if (row0 < 0) row0 = 0;
-    if (col1 > tm.cols) col1 = tm.cols;
-    if (row1 > tm.rows) row1 = tm.rows;
-    if (col0 >= col1 || row0 >= row1) return;
-
-    for (int r = row0; r < row1; r++) {
-        int *rowPtr = tm.tiles + r * tm.cols;
-        for (int c = col0; c < col1; c++) {
-            rowPtr[c] = tileId;
-        }
-    }
-}
-
-void GameLib::ClearTilemap(int mapId, int tileId)
-{
-    if (mapId < 0 || mapId >= (int)_tilemaps.size()) return;
-    if (!_tilemaps[mapId].used) return;
-    if (tileId < -1) return;
-
-    GameTilemap &tm = _tilemaps[mapId];
-    int count = tm.cols * tm.rows;
-    for (int i = 0; i < count; i++) {
-        tm.tiles[i] = tileId;
-    }
-}
-
-void GameLib::DrawTilemap(int mapId, int x, int y, int flags)
-{
-    if (mapId < 0 || mapId >= (int)_tilemaps.size()) return;
-    if (!_tilemaps[mapId].used) return;
-
-    GameTilemap &tm = _tilemaps[mapId];
-    int tsId = tm.tilesetId;
-    if (tsId < 0 || tsId >= (int)_sprites.size()) return;
-    if (!_sprites[tsId].used) return;
-
-    GameSprite &tset = _sprites[tsId];
-    int ts = tm.tileSize;
-    int tsCols = tset.width / ts;
-    int tileCount = _GetTilesetTileCount(tsId, ts);
-    tm.tilesetCols = tsCols;
-    if (tsCols <= 0 || tileCount <= 0 || _clipW <= 0 || _clipH <= 0) return;
-
-    int clipX0 = _clipX;
-    int clipY0 = _clipY;
-    int clipX1 = _clipX + _clipW;
-    int clipY1 = _clipY + _clipH;
-
-    // Calculate visible tile range on screen, avoid traversing the whole map
-    int col0 = (clipX0 - x) / ts;
-    int row0 = (clipY0 - y) / ts;
-    int col1 = (clipX1 - 1 - x) / ts + 1;
-    int row1 = (clipY1 - 1 - y) / ts + 1;
-    if (col0 < 0) col0 = 0;
-    if (row0 < 0) row0 = 0;
-    if (col1 > tm.cols) col1 = tm.cols;
-    if (row1 > tm.rows) row1 = tm.rows;
-
-    bool useAlpha    = (flags & SPRITE_ALPHA) != 0;
-    bool useColorKey = (flags & SPRITE_COLORKEY) != 0;
-    int tileFlags = flags & (SPRITE_ALPHA | SPRITE_COLORKEY);
-    bool canMemcpyTiles = !useAlpha && !useColorKey;
-
-    for (int r = row0; r < row1; r++) {
-        for (int c = col0; c < col1; c++) {
-            int tid = tm.tiles[r * tm.cols + c];
-            if (tid < 0 || tid >= tileCount) continue;
-
-            // Pixel start position of this tile in tileset
-            int srcCol = tid % tsCols;
-            int srcRow = tid / tsCols;
-            int srcX0 = srcCol * ts;
-            int srcY0 = srcRow * ts;
-
-            // Screen destination position
-            int dstX0 = x + c * ts;
-            int dstY0 = y + r * ts;
-
-            if (canMemcpyTiles) {
-                int ix0 = 0, iy0 = 0, ix1 = ts, iy1 = ts;
-                if (dstX0 < clipX0) ix0 = clipX0 - dstX0;
-                if (dstY0 < clipY0) iy0 = clipY0 - dstY0;
-                if (dstX0 + ix1 > clipX1)  ix1 = clipX1 - dstX0;
-                if (dstY0 + iy1 > clipY1) iy1 = clipY1 - dstY0;
-                if (ix0 >= ix1 || iy0 >= iy1) continue;
-
-                int copyPixels = ix1 - ix0;
-                int dstX = dstX0 + ix0;
-                for (int iy = iy0; iy < iy1; iy++) {
-                    const uint32_t *srcRow_ = tset.pixels + (srcY0 + iy) * tset.width;
-                    uint32_t *dstRow_ = _framebuffer + (dstY0 + iy) * _width;
-                    memcpy(dstRow_ + dstX, srcRow_ + srcX0 + ix0, (size_t)copyPixels * sizeof(uint32_t));
-                }
-            } else {
-                _DrawSpriteAreaFast(tsId, dstX0, dstY0, srcX0, srcY0, ts, ts, tileFlags);
-            }
-        }
-    }
+    return changed;
 }
 
 
