@@ -151,6 +151,7 @@ g++ -o 03_shapes.exe examples/03_shapes.cpp -mwindows
 想找游戏素材？试试这些：
 
 - 老游戏精灵：https://www.spriters-resource.com
+- 免费像素宝库：https://opengameart.org/
 - 像素风格资源：http://www.charas-project.net/resources.php?lang=en
 - 免费图片/音频/字体：https://craftpix.net/tags/pixel-art-game-assets-download
 - PyGame 资源页：https://www.pygame.org/wiki/resources
