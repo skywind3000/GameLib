@@ -1210,8 +1210,7 @@ GameLib::GameLib()
                     "Fatal Error", MB_OK | MB_ICONERROR);
         exit(1);
     }
-    _audio_initialized = _InitAudioBackend();
-}
+    }
 
 
 void GameLib::_DestroyGraphicsResources()
@@ -5282,7 +5281,11 @@ void GameLib::_ReleaseChannel(int channel_id)
 
 int GameLib::PlayWAV(const char *filename, int repeat, int volume)
 {
-    if (!filename || !_audio_initialized) return -2;
+    if (!filename) return -2;
+    if (!_audio_initialized) {
+        _audio_initialized = _InitAudioBackend();
+        if (!_audio_initialized) return -2;
+    }
 
     _WavData *wav = _LoadOrCacheWAV(filename);
     if (!wav) return -1;
