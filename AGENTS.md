@@ -21,6 +21,7 @@
 | `docs/GameLib.md` | GameLib.h 内部设计思路与技术规格 | 改 GameLib.h 内部实现时 |
 | `docs/GameLib.SDL.md` | GameLib.SDL.h 的规格、兼容边界与实现决策 | 改 GameLib.SDL.h 时 |
 | `docs/quickref.md` | GameLib.h 的快速 API 列表 | 做游戏，改公开 API 时 |
+| `docs/cheatsheet.html` | A4 横版打印速查表（数据来源：`docs/quickref.md`） | quickref 变动时需同步更新 |
 | `SDL2PORT.md` | SDL 版编译命令与当前限制（简版） | 编译 SDL 版时 |
 | `assets/sprites.md` | 精灵图资源索引（尺寸、用途、瓦片集详情） | 做游戏需要图片素材时 |
 | `assets/sound.md` | 音效资源索引（WAV 参数和用途） | 做游戏需要音效素材时 |
