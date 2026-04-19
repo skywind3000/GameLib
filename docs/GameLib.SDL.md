@@ -4,7 +4,7 @@
 
 `GameLib.SDL.h` 是 `GameLib.h` 的 **独立 SDL 版产品线**，目标是在 **Windows / macOS / Linux** 上提供尽量一致的教学型 2D 游戏开发体验。
 
-**当前版本**: `1.8.1`
+**当前版本**: `1.9.0`
 
 它不是对现有 `GameLib.h` 的直接替换，也不是在原头文件中塞入大量 `#ifdef SDL` 的混合版本，而是一份 **单独维护的跨平台单头文件**。其公开使用方式尽量保持与 `GameLib.h` 一致：
 
@@ -27,7 +27,7 @@ int main() {
 
 本文档既用于固定 `GameLib.SDL.h` 的定位、依赖、内部架构与兼容边界，也用于同步当前实现状态、已知差异与后续演进边界。
 
-当前 `1.8.1` 已加入与 Win32 主线对齐的 Clip Rectangle 裁剪接口；所有最终写入 `_framebuffer` 的绘制路径都会受当前裁剪矩形约束，空裁剪区域时统一不绘制；`DrawLine()` 会在 Bresenham 前先裁剪线段，`LoadSprite()` 也会拒绝超出 `16384` 限制的图片。最新还加入了与 Win32 版一致的独立旋转绘制（`DrawSpriteRotated` / `DrawSpriteFrameRotated`，中心点语义，最近邻采样）、场景管理（`SetScene`/`GetScene`/`IsSceneChanged`/`GetPreviousScene`）和存档读写（`SaveInt`/`LoadInt` 等 9 个 static 函数，纯文本 `key=value` 格式，按每行第一个 `=` 切分，value 可以包含 `=`，但 key 不能为空且不能包含 `=`、回车或换行；SDL 版使用标准 `fopen()` 替代 Win32 版的 `_gamelib_fopen_utf8()`），以及固定 framebuffer + 可选可缩放窗口：`Open()` 决定逻辑 framebuffer 尺寸，`Update()` 在窗口客户区与 framebuffer 尺寸不同时自动缩放填满，鼠标位置则反算为 framebuffer 逻辑坐标。
+当前 `1.9.0` 已加入与 Win32 主线对齐的 Clip Rectangle 裁剪接口；所有最终写入 `_framebuffer` 的绘制路径都会受当前裁剪矩形约束，空裁剪区域时统一不绘制；`DrawLine()` 会在 Bresenham 前先裁剪线段，`LoadSprite()` 也会拒绝超出 `16384` 限制的图片。最新还加入了与 Win32 版一致的独立旋转绘制（`DrawSpriteRotated` / `DrawSpriteFrameRotated`，中心点语义，最近邻采样）、场景管理（`SetScene`/`GetScene`/`IsSceneChanged`/`GetPreviousScene`）和存档读写（`SaveInt`/`LoadInt` 等 9 个 static 函数，纯文本 `key=value` 格式，按每行第一个 `=` 切分，value 可以包含 `=`，但 key 不能为空且不能包含 `=`、回车或换行；SDL 版使用标准 `fopen()` 替代 Win32 版的 `_gamelib_fopen_utf8()`），以及固定 framebuffer + 可选可缩放窗口：`Open()` 决定逻辑 framebuffer 尺寸，`Update()` 在窗口客户区与 framebuffer 尺寸不同时自动缩放填满，鼠标位置则反算为 framebuffer 逻辑坐标。音效子系统重写为多通道软件混音器（最多 32 通道并发，`PlayWAV` 返回通道 ID，支持音量/主音量控制）；新增 `DrawPrintfScale`、`KEY_ADD`/`KEY_SUBTRACT`；SDL mixer 初始化统一注册更多格式 flag 并记录返回值。
 
 若你只想快速查看 SDL 版的编译命令、依赖开关和当前限制，可直接看仓库根目录的 `SDL2PORT.md`。
 
