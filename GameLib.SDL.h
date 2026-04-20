@@ -1331,6 +1331,31 @@ static void _gamelib_append_platform_font_candidates(std::vector<std::string> &c
     _gamelib_push_font_candidate(candidates, "/System/Library/Fonts/Supplemental/Arial.ttf");
     _gamelib_push_font_candidate(candidates, "/System/Library/Fonts/Supplemental/Courier New.ttf");
 
+#elif defined(__EMSCRIPTEN__)
+    // WASM: fonts must be bundled into the virtual filesystem (MEMFS/preload)
+    // No system font directories exist; rely on explicit file paths only.
+    // The "default" and common family names map to bundled fonts if provided.
+    if (normalized == "arial" || normalized == "sans" || normalized == "default") {
+        _gamelib_push_font_candidate(candidates, "assets/fonts/Arial.ttf");
+        _gamelib_push_font_candidate(candidates, "assets/fonts/FreeSans.ttf");
+    }
+    if (normalized == "microsoftyahei" || normalized == "yahei" || normalized == "simhei" ||
+        normalized == "heiti" || normalized == "notosanscjk" || normalized == "notosanscjksc") {
+        _gamelib_push_font_candidate(candidates, "assets/fonts/NotoSansCJK-Regular.ttc");
+        _gamelib_push_font_candidate(candidates, "assets/fonts/msyh.ttc");
+    }
+    if (normalized == "couriernew" || normalized == "courier" || normalized == "monospace") {
+        _gamelib_push_font_candidate(candidates, "assets/fonts/CourierNew.ttf");
+        _gamelib_push_font_candidate(candidates, "assets/fonts/FreeMono.ttf");
+    }
+    if (normalized == "timesnewroman" || normalized == "times" || normalized == "serif") {
+        _gamelib_push_font_candidate(candidates, "assets/fonts/TimesNewRoman.ttf");
+        _gamelib_push_font_candidate(candidates, "assets/fonts/FreeSerif.ttf");
+    }
+
+    _gamelib_push_font_candidate(candidates, "assets/fonts/NotoSansCJK-Regular.ttc");
+    _gamelib_push_font_candidate(candidates, "assets/fonts/FreeSans.ttf");
+
 #else
     if (normalized == "arial" || normalized == "sans" || normalized == "default" || normalized == "dejavusans") {
         _gamelib_push_font_candidate(candidates, "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf");
