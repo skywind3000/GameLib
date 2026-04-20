@@ -54,7 +54,7 @@ int main()
 
         // === Section 1: Beep Piano ===
         game.DrawText(40, 70, "Piano (Beep) - Press 1~8:", COLOR_WHITE);
-        game.DrawText(40, 85, "Warning: Beep is blocking!", COLOR_ORANGE);
+        game.DrawText(40, 85, "Non-blocking, returns channel ID", COLOR_GREEN);
 
         activeNote = -1;
         for (int i = 0; i < 8; i++) {

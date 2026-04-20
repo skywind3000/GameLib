@@ -291,7 +291,8 @@ Returns: <code>MESSAGEBOX_RESULT_OK</code> / <code>_YES</code> / <code>_NO</code
 <section>
 <h2>Sound</h2>
 <ul>
-  <li><code>PlayWAV(file, repeat, volume)</code> → channel ID, -1/-2=fail</li>
+  <li><code>PlayWAV(file, repeat, volume)</code> → channel ID, -1/-2/-4=fail</li>
+  <li><code>PlayPCM(pcm, nch, nsamp, rate, repeat, volume)</code> → channel ID, -1/-2/-4=fail</li>
   <li><code>StopWAV(channel)</code> → 1=success</li>
   <li><code>IsPlaying(channel)</code> → 1/0</li>
   <li><code>SetVolume(channel, volume)</code> 0~1000</li>
@@ -301,7 +302,7 @@ Returns: <code>MESSAGEBOX_RESULT_OK</code> / <code>_YES</code> / <code>_NO</code
   <li><code>PlayMusic(file, loop)</code> MP3/MIDI/WAV → true</li>
   <li><code>StopMusic()</code></li>
   <li><code>IsMusicPlaying()</code></li>
-  <li><code>PlayBeep(freq, duration)</code> blocking</li>
+  <li><code>PlayBeep(freq, duration, repeat, volume)</code> async, returns channel ID</li>
 </ul>
 <p class="note">WAV and Music are independent, can play simultaneously. Volume range: 0~1000.</p>
 </section>

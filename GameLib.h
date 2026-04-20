@@ -972,18 +972,20 @@ static PFN_GdipDisposeImage           _gl_GdipDisposeImage = NULL;
 static PFN_CreateStreamOnHGlobal      _gl_CreateStreamOnHGlobal = NULL;
 
 static int _gamelib_gdiplus_ready = 0;
+static int _gamelib_gdiplus_failed = 0;
 static ULONG_PTR _gamelib_gdip_token = 0;
 
 // Initialize GDI+: load gdiplus.dll / ole32.dll and call GdiplusStartup
 static int _gamelib_gdiplus_init()
 {
     if (_gamelib_gdiplus_ready) return 0;
+    if (_gamelib_gdiplus_failed) return -5;
 
     HMODULE hGdiPlus = LoadLibraryA("gdiplus.dll");
-    if (!hGdiPlus) return -1;
+    if (!hGdiPlus) { _gamelib_gdiplus_failed = 1; return -1; }
 
     HMODULE hOle32 = LoadLibraryA("ole32.dll");
-    if (!hOle32) { FreeLibrary(hGdiPlus); return -2; }
+    if (!hOle32) { FreeLibrary(hGdiPlus); _gamelib_gdiplus_failed = 1; return -2; }
 
     _gl_GdiplusStartup = _gamelib_load_proc<PFN_GdiplusStartup>(hGdiPlus, "GdiplusStartup");
     _gl_GdipCreateBitmapFromStream = _gamelib_load_proc<PFN_GdipCreateBitmapFromStream>(hGdiPlus, "GdipCreateBitmapFromStream");
@@ -999,6 +1001,7 @@ static int _gamelib_gdiplus_init()
         !_gl_GdipBitmapLockBits || !_gl_GdipBitmapUnlockBits ||
         !_gl_GdipDisposeImage || !_gl_CreateStreamOnHGlobal) {
         FreeLibrary(hOle32); FreeLibrary(hGdiPlus);
+        _gamelib_gdiplus_failed = 1;
         return -3;
     }
 
@@ -1006,8 +1009,10 @@ static int _gamelib_gdiplus_init()
     struct { unsigned int ver; void *cb; BOOL noThread; BOOL noCodecs; } si;
     si.ver = 1; si.cb = NULL; si.noThread = FALSE; si.noCodecs = FALSE;
 
-    if (_gl_GdiplusStartup(&_gamelib_gdip_token, &si, NULL) != 0)
+    if (_gl_GdiplusStartup(&_gamelib_gdip_token, &si, NULL) != 0) {
+        _gamelib_gdiplus_failed = 1;
         return -4;
+    }
 
     _gamelib_gdiplus_ready = 1;
     return 0;
@@ -4979,7 +4984,29 @@ void GameLib::_ShutdownAudioBackend()
     if (_hWaveOut) {
         _audio_closing = true;
         _gl_waveOutReset(_hWaveOut);
-        Sleep(50);
+
+        // Wait for all buffers to be returned (WHDR_DONE) before closing.
+        // waveOutReset is asynchronous; closing before buffers are done
+        // can cause the callback to operate on a closed device handle.
+        for (int attempt = 0; attempt < 100; attempt++) {
+            bool allDone = true;
+            for (int i = 0; i < 2; i++) {
+                if (_wave_hdr[i] && !(_wave_hdr[i]->dwFlags & WHDR_DONE)) {
+                    allDone = false;
+                    break;
+                }
+            }
+            if (allDone) break;
+            Sleep(5);
+        }
+
+        // Unprepare headers before closing the device
+        for (int i = 0; i < 2; i++) {
+            if (_wave_hdr[i] && _gl_waveOutUnprepareHeader) {
+                _gl_waveOutUnprepareHeader(_hWaveOut, _wave_hdr[i], sizeof(WAVEHDR));
+            }
+        }
+
         _gl_waveOutClose(_hWaveOut);
         _hWaveOut = NULL;
     }

@@ -302,12 +302,12 @@ struct _WavData {
     ~_WavData() { if (buffer) delete[] buffer; }
 };
 struct _Channel {
+    int id;             // 通道 ID（由 _AllocateChannel 分配）
     _WavData *wav;
     int volume;
-    int repeat;
+    int repeat;         // 剩余重复次数；0 = 无限循环，1 = 最后一次，>1 = 递减
     uint32_t position;
-    bool active;
-    bool stopping;
+    bool is_playing;
 };
 std::unordered_map<std::string, _WavData*> _wav_cache;
 std::unordered_map<int, _Channel*> _audio_channels;
@@ -400,7 +400,8 @@ static bool _srandDone; // srand 是否已初始化
 - 在 `Open()` 前调用时安全返回 `0.0`
 
 #### `int GetWidth() const` / `int GetHeight() const`
-- 客户区宽度/高度
+- 固定 framebuffer 逻辑宽度/高度（即 `Open()` 时传入的 `width`/`height`）
+- 在 `resizable=true` 的可缩放窗口中，此值不随窗口拖拽而改变
 
 #### `uint32_t *GetFramebuffer()`
 - 返回 framebuffer 指针，可直接读写像素
@@ -693,13 +694,18 @@ static bool _srandDone; // srand 是否已初始化
 
 ### 6.8 声音
 
-#### `void PlayBeep(int frequency, int duration)`
-- Windows Beep（阻塞式，简单蜂鸣）
+#### `int PlayBeep(int frequency, int duration, int repeat = 1, int volume = 1000)`
+- 异步蜂鸣，内部生成正弦波 PCM 通过 `PlayPCM` 播放
+- `frequency`: 频率（Hz），`duration`: 持续时间（毫秒）
+- `repeat`: 重复次数，0 表示无限循环，默认 1（单次播放）
+- `volume`: 通道音量，范围 0~1000，默认 1000（满音量）
+- 成功返回通道 ID（正整数），失败返回 -1（参数错误）或 -2（音频设备初始化失败）
+- 音频设备惰性初始化：首次调用时才创建 waveOut 设备
 
 #### `int PlayWAV(const char *filename, int repeat = 1, int volume = 1000)`
 - 使用 waveOut 软件混音器播放 WAV 音效（异步，多通道）
 - `filename` 按 **UTF-8** 解释，内部转为宽字符路径
-- `repeat` 为重复次数，-1 表示无限循环，默认 1（单次播放）
+- `repeat` 为重复次数，0 表示无限循环，默认 1（单次播放）
 - `volume` 为通道音量，范围 0~1000，默认 1000（满音量）
 - 每次调用分配独立通道，同一 WAV 文件可重叠播放
 - 成功返回通道 ID（正整数），失败返回 -1（文件错误）或 -2（音频设备初始化失败）
@@ -708,7 +714,7 @@ static bool _srandDone; // srand 是否已初始化
 #### `int StopWAV(int channel)`
 - 停止指定通道的 WAV 播放
 - `channel` 为 `PlayWAV` 返回的通道 ID
-- 成功返回 1，无效通道返回 0
+- 成功返回 0，无效通道返回 -1
 
 #### `int IsPlaying(int channel)`
 - 查询指定通道是否仍在播放
@@ -717,7 +723,7 @@ static bool _srandDone; // srand 是否已初始化
 #### `int SetVolume(int channel, int volume)`
 - 设置指定通道音量
 - `volume` 范围 0~1000
-- 成功返回新音量值，无效通道返回 -1
+- 成功返回 0，无效通道返回 -1
 
 #### `void StopAll()`
 - 停止所有通道的音效播放并清除缓存
@@ -725,7 +731,7 @@ static bool _srandDone; // srand 是否已初始化
 #### `int SetMasterVolume(int volume)`
 - 设置主音量
 - `volume` 范围 0~1000，自动钳制到有效范围
-- 返回实际设置的主音量值
+- 始终返回 0
 
 #### `int GetMasterVolume() const`
 - 返回当前主音量值（0~1000）
@@ -1110,7 +1116,7 @@ int main() {
 ### 已知限制
 
 1. **C-style 强制转换** — cppcheck 会报 style 警告，但对目标用户群体来说可以接受
-2. **PlayBeep 是阻塞的** — 会暂停游戏循环
+2. ~~PlayBeep 是阻塞的~~ — 已改为异步，通过 PlayPCM 播放，返回通道 ID
 3. **单窗口** — 窗口类名固定为 "GameLibWindowClass"，同时只能有一个 GameLib 实例正常工作
 4. **WaitFrame 精度** — 已改为基于绝对帧边界的 QPC 节拍，并在最后一小段时间里做更细的收尾等待；但底层仍受 Windows 调度粒度影响，不是硬实时计时器
 5. **背景音乐单通道** — 每个 `GameLib` 对象同一时刻仍只能播放一首 MCI 背景音乐；但音效已支持多通道同时播放
@@ -1188,7 +1194,7 @@ int main() {
 | `LoadSpriteBMP` 用 `memcpy` 读 BMP 头 | 避免通过指针强制转换（aliasing cast）读取未对齐的多字节字段，符合严格别名规则 |
 | `LoadSpriteBMP` 失败时回滚精灵槽 | 截断文件或短读不能留下半初始化 sprite，避免后续误用野数据 |
 | `_gamelib_load_apis` 失败时清理所有指针 | GetProcAddress 部分失败时 NULL out 所有指针 + FreeLibrary 两个 DLL，防止悬空指针 |
-| `_gamelib_gdiplus_init` 失败时分级清理 | -2/-3 错误路径 FreeLibrary 已加载的 DLL；-4 错误（`GdiplusStartup` 失败）不释放 DLL 因为函数指针已指向 DLL 内部地址 |
+| `_gamelib_gdiplus_init` 失败时分级清理 + 防重入 | 所有失败路径都设置 `_gamelib_gdiplus_failed = 1`，后续调用直接返回 -5 不再重试；-1/-2/-3 路径 FreeLibrary 已加载的 DLL；-4 路径（`GdiplusStartup` 失败）不释放 DLL 因为函数指针已指向 DLL 内部地址 |
 | `PlayMusic` 使用 `mciSendStringW` + 路径过滤 | 路径支持 UTF-8；拒绝引号和换行，避免 MCI 字符串命令注入 |
 | 场景切换延迟到下一帧 `Update()` 生效 | 避免同一帧内输入穿透到新场景；pending 机制保证 `SetScene()` 后的当前帧逻辑完整执行 |
 | 初始帧 `_sceneChanged = true` | 方便用户在场景 0 的首帧做一次性初始化，不需要额外的 `firstFrame` 变量 |

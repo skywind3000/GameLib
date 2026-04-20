@@ -153,7 +153,7 @@ SDL 版实现上，要求在 `SDL_Init()` 之前设置 Windows DPI awareness 提
 
 - `GAMELIB_SDL_DISABLE_IMAGE=1` 时，`LoadSprite()` 的非 BMP 扩展格式支持会被关闭。
 - `GAMELIB_SDL_DISABLE_TTF=1` 时，`DrawTextFont()` 和字体测量函数会退化为不可用状态。
-- `GAMELIB_SDL_DISABLE_MIXER=1` 时，`PlayWAV()` / `PlayMusic()` 的高层 SDL_mixer 路径会被关闭，但 `PlayBeep()` 仍可走 plain SDL 音频兜底。
+- `GAMELIB_SDL_DISABLE_MIXER=1` 时，`PlayWAV()` / `PlayMusic()` 的高层 SDL_mixer 路径会被关闭，但 `PlayBeep()` / `PlayPCM()` 仍可走自写软件混音器。
 - SDL 头文件（包括 `SDL.h` 及检测到的扩展头）在 `GameLib.SDL.h` 的类声明之前就被包含，不再依赖 `#ifdef GAMELIB_SDL_IMPLEMENTATION` 保护；这样类声明可以直接使用真实 SDL 类型，而不是依赖跨平台容易冲突的前向声明。
 - 若某个扩展头未找到（`GAMELIB_SDL_HAS_* = 0`），库会在类声明前按 SDL 官方 typedef tag 约定（如 `_TTF_Font`、`_Mix_Music`）提供条件前向声明，确保指针成员的类型完整性。
 
@@ -363,7 +363,7 @@ GameLib.SDL.h
 - `IsKeyDown` / `IsKeyPressed` / `IsKeyReleased`
 - `GetMouseX` / `GetMouseY` / `IsMouseDown` / `IsMousePressed` / `IsMouseReleased`
 - `GetMouseWheelDelta` / `IsActive`
-- `PlayBeep` / `PlayWAV` / `StopWAV` / `IsPlaying` / `SetVolume` / `StopAll` / `SetMasterVolume` / `GetMasterVolume` / `PlayMusic` / `StopMusic` / `IsMusicPlaying`
+- `PlayBeep` / `PlayPCM` / `PlayWAV` / `StopWAV` / `IsPlaying` / `SetVolume` / `StopAll` / `SetMasterVolume` / `GetMasterVolume` / `PlayMusic` / `StopMusic` / `IsMusicPlaying`
 - `Random` / `RectOverlap` / `CircleOverlap` / `PointInRect` / `Distance`
 - `DrawGrid` / `FillCell`
 - `CreateTilemap` / `SaveTilemap` / `LoadTilemap` / `FreeTilemap` / `SetTile` / `GetTile` / `GetTilemapCols` / `GetTilemapRows`
@@ -391,8 +391,8 @@ GameLib.SDL.h
 
 #### `PlayBeep`
 
-- Windows 版调用系统 `Beep`。
-- SDL 版改为 **库内合成短音频波形** 并播放。
+- 两线均为异步接口，签名 `int PlayBeep(int frequency, int duration, int repeat = 1, int volume = 1000)`，返回通道 ID。
+- 内部生成正弦波 PCM 数据，通过 `PlayPCM` 播放，数据末尾带 10ms 淡出消除爆音。
 
 #### `PlayWAV` / `StopWAV` / `IsPlaying` / `SetVolume` / `StopAll` / `SetMasterVolume` / `GetMasterVolume`
 
@@ -766,7 +766,7 @@ SDL 版音频分为两条独立路径：
 
 - **音效**：自写软件混音器（`SDL_OpenAudioDevice` + 音频回调），与 Win32 主线的 waveOut 混音器架构平行
 - **背景音乐**：继续走 `SDL_mixer`（`Mix_Music*`），因为 MIDI/MP3 等格式需要解码器
-- `PlayBeep()` 兼容接口：优先走自写混音器，降级时走 `SDL_QueueAudio`
+- `PlayBeep()` 异步接口：内部生成正弦波 PCM，通过 `PlayPCM` 播放，返回通道 ID
 
 音效和音乐使用独立的 SDL audio device，互不干扰。
 
@@ -820,12 +820,11 @@ SDL 版音频分为两条独立路径：
 
 ### 10.4 PlayBeep
 
-SDL 版 `PlayBeep(int frequency, int duration)` 当前实现为 **阻塞式合成提示音**：
+`PlayBeep(int frequency, int duration, int repeat = 1, int volume = 1000)` 为 **异步接口**：
 
-- 若音效混音器已初始化，直接通过自写混音器播放（临时通道）
-- 若混音器未初始化，临时打开 SDL audio device 走 `SDL_QueueAudio`
-- 在声音播完或达到保护超时之前不返回，保持与 Win32 `Beep()` 接近的教学语义
-- 不要求与 Windows 系统蜂鸣器音色一致
+- 内部生成正弦波 PCM 数据，通过 `PlayPCM` 播放，返回通道 ID
+- 数据末尾带 10ms 淡出消除爆音
+- 返回的通道 ID 可用 `StopWAV`、`IsPlaying`、`SetVolume` 控制，与 `PlayWAV` / `PlayPCM` 返回的通道用法一致
 
 ### 10.5 音频设备共存与释放
 
@@ -1011,10 +1010,10 @@ static bool _srandDone;
 - Windows 默认目标是 **故意匹配 `GameLib.h`**，即使用 `DPI unaware` 模式，让系统缩放整体放大窗口。
 - macOS 和 Linux 下的实际缩放观感则取决于 SDL backend、窗口系统和桌面环境，不承诺与 Windows 完全一致。
 
-### 13.4 PlayBeep 的声音不再是系统蜂鸣器
+### 13.4 PlayBeep 不再阻塞
 
-- 只保留“能发出提示音”这个教学语义
-- 不保留 Windows `Beep()` 的系统声音特征
+- 两线 `PlayBeep` 均改为异步，内部生成正弦波 PCM 通过 `PlayPCM` 播放
+- 不再调用 Windows `Beep()` 系统函数，不再阻塞游戏循环
 
 ---
 
@@ -1135,7 +1134,7 @@ static bool _srandDone;
 - 音效设备惰性初始化（首次 `PlayWAV` 时才打开），不使用音频的程序不会创建 audio device。
 - WAV 数据统一转换为 44100Hz/stereo/16bit 后缓存复用，与 Win32 主线保持一致的重采样和格式转换逻辑。
 - `SDL_LockAudioDevice`/`SDL_UnlockAudioDevice` 替代 Win32 版的 `CRITICAL_SECTION`，在公开 API 中保护通道状态修改。
-- `PlayBeep` 优先复用自写混音器（若已初始化），否则临时打开 SDL audio device 走 `SDL_QueueAudio`；整体仍保持阻塞式调用，接近 Win32 版教学语义。
+- `PlayBeep` 异步接口：内部生成正弦波 PCM，通过 `PlayPCM` 播放，返回通道 ID，不再阻塞游戏循环
 - 字体部分不把“系统字体家族名跨平台精确解析”列为首版硬要求，是为了控制复杂度，避免一开始就把 Win32 / macOS / Linux 的字体发现机制都卷进来。
 - SDL 头文件包含和扩展库检测放在类声明之前、不受 `GAMELIB_SDL_IMPLEMENTATION` 保护；这样类声明直接使用真实 SDL 类型，不再依赖跨平台不一致的前向声明。条件前向声明仅在扩展头未找到时（`GAMELIB_SDL_HAS_* = 0`）才会生效，且使用 SDL 官方 typedef tag 约定（如 `_TTF_Font`、`_Mix_Music`），避免与后续外部包含冲突。
 - Tilemap 不再缓存 `tilesetTileCount`，而是由 `DrawTilemap()` 在 memcpy 风险点前按 live sprite 尺寸即时计算 `tileCount`；这样既减少内部状态，又保持 sprite 槽位复用后的内存安全。
