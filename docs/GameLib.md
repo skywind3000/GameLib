@@ -7,7 +7,6 @@
 **当前版本**: `1.9.7`
 **最后修改**: 2026/04/21
 
-当前 `1.9.6` 的稳定范围包括：窗口与输入、图元与文字、精灵与 Tilemap、声音、场景管理、纯文本存档，以及固定 framebuffer + 可选可缩放窗口。音效子系统从 PlaySoundW 单声道改为多通道软件混音器（最多 32 通道并发，支持音量/主音量控制）；新增 `DrawPrintfScale`、`KEY_ADD`/`KEY_SUBTRACT` 键常量；音频后端改为惰性初始化。Tilemap 不再缓存 `tilesetTileCount`；地图里超出当前 tileset 范围的非负 `tileId` 会在绘制时自动跳过。窗口缩放时继续返回 framebuffer 逻辑坐标的鼠标位置。新增 `GetFramebuffer()` 直接暴露 framebuffer 指针。`DrawTextScale` 内部改为预计算查找表缩放（替代逐像素除法），alpha==255 时直写 framebuffer，最大缩放尺寸 1024。`FillRect` 不透明路径改为首行填充 + memcpy 复制后续行；`DrawText` 空行（bits==0）整体跳过；`DrawTextScale` 当 `w==8 && h==8` 时直接走 `DrawText` 快路径。`_SetMouseFromWindowCoords` 在 aspect lock 模式下改为实时计算布局，不再依赖 `_PresentFrame` 中缓存的存储值，修复了窗口最大化再还原后鼠标坐标偏移的问题。
 
 ---
 
@@ -1234,3 +1233,10 @@ int main() {
 | PlayPCM 临时数据 `temporary` 标记 | `temporary=true` 的 `_WavData` 在 ref_count 递减后立即释放；复用 `_ConvertToTargetFormat`，栈上借用外部指针零拷贝 |
 | 通道 ID 用自增 `int64_t` 分配 | 简单无冲突，关闭通道后 ID 不回收；`unordered_map<int, _Channel*>` 管理活跃通道 |
 | 混音缓冲使用 `int32_t` 累加 | 防止多通道叠加溢出 16-bit；最终按 `master_volume * channel_volume / 1000000` 钳制后截断为 `int16_t` |
+| `DrawTextScale` 预计算查找表缩放 | 替代逐像素除法，按缩放因子预生成 x/y 索引表；alpha==255 时直写 framebuffer 略过混合；最大缩放尺寸 1024 |
+| `FillRect` 不透明路径首行填充 + memcpy | alpha==255 时首行逐像素写入，后续行用 memcpy 从第一行复制，宽矩形性能显著提升 |
+| `DrawText` 空行整体跳过 | 内嵌 8x8 字体逐字符逐行渲染时，bits==0 的行直接 continue，空格等字符几乎零开销 |
+| `DrawTextScale` 1:1 快路径 | w==8 && h==8 时直接走 `DrawText`，避免查找表开销 |
+| Aspect lock 模式下鼠标坐标实时计算 | `_SetMouseFromWindowCoords` 实时计算布局，不依赖 `_PresentFrame` 缓存的存储值，修复窗口最大化再还原后鼠标坐标偏移 |
+| 窗口缩放时返回 framebuffer 逻辑坐标鼠标位置 | 无论窗口实际尺寸如何，`GetMouseX/Y` 始终返回 framebuffer 坐标系内的值，游戏逻辑无需感知窗口缩放 |
+| `GetFramebuffer()` 直接暴露 framebuffer 指针 | 允许外部代码直接操作像素数组（如批量填充、memcpy 拷贝），无需逐像素 `SetPixel` |
