@@ -57,7 +57,7 @@
 
 #define GAMELIB_SDL_VERSION_MAJOR 1
 #define GAMELIB_SDL_VERSION_MINOR 9
-#define GAMELIB_SDL_VERSION_PATCH 7
+#define GAMELIB_SDL_VERSION_PATCH 8
 
 #include <stdint.h>
 #include <limits.h>
