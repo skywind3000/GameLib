@@ -82,7 +82,7 @@ int main() {
 | Windows | 目标支持 | MinGW / MSVC 均可，依赖 SDL2 运行时 |
 | macOS | 目标支持 | Clang + SDL2 系列库 |
 | Linux | 目标支持 | 依赖 SDL2 视频后端，覆盖 X11 / Wayland |
-| Emscripten (WASM) | 实验性支持 | 需要 `-s ASYNCIFY=1`，`WaitFrame()` 用 `emscripten_sleep()` 替代忙等 |
+| Emscripten (WASM) | 实验性支持 | 需要 `-s ASYNCIFY=1`，`WaitFrame()` 用 `emscripten_sleep()` 替代忙等；WASM 环境只允许打开一个 audio device，音效自动走 SDL_mixer `Mix_Chunk` 路径 |
 
 ### 2.2 Linux 桌面环境说明
 
@@ -157,6 +157,7 @@ SDL 版实现上，要求在 `SDL_Init()` 之前设置 Windows DPI awareness 提
 - `GAMELIB_SDL_DISABLE_IMAGE=1` 时，`LoadSprite()` 的非 BMP 扩展格式支持会被关闭。
 - `GAMELIB_SDL_DISABLE_TTF=1` 时，`DrawTextFont()` 和字体测量函数会退化为不可用状态。
 - `GAMELIB_SDL_DISABLE_MIXER=1` 时，`PlayWAV()` / `PlayMusic()` 的高层 SDL_mixer 路径会被关闭，但 `PlayBeep()` / `PlayPCM()` 仍可走自写软件混音器。
+- 定义 `GAMELIB_SDL_MIXER_CHANNEL`（任何值）时，若 `SDL_mixer` 可用，所有音效 API（`PlayWAV`/`PlayPCM`/`PlayBeep`）统一走 `Mix_Chunk` + `Mix_PlayChannel`，不再使用独立的 `SDL_OpenAudioDevice`。此行为在 WASM（`__EMSCRIPTEN__`）环境下自动启用，无需手动定义。详见第 10 节音频系统设计。
 - SDL 头文件（包括 `SDL.h` 及检测到的扩展头）在 `GameLib.SDL.h` 的类声明之前就被包含，不再依赖 `#ifdef GAMELIB_SDL_IMPLEMENTATION` 保护；这样类声明可以直接使用真实 SDL 类型，而不是依赖跨平台容易冲突的前向声明。
 - 若某个扩展头未找到（`GAMELIB_SDL_HAS_* = 0`），库会在类声明前按 SDL 官方 typedef tag 约定（如 `_TTF_Font`、`_Mix_Music`）提供条件前向声明，确保指针成员的类型完整性。
 
@@ -793,13 +794,20 @@ SDL 版仍保留 `LoadSpriteBMP()`，目的有二：
 
 ### 10.1 总体原则
 
-SDL 版音频分为两条独立路径：
+SDL 版音频分为两条独立路径（默认模式）：
 
 - **音效**：自写软件混音器（`SDL_OpenAudioDevice` + 音频回调），与 Win32 主线的 waveOut 混音器架构平行
 - **背景音乐**：继续走 `SDL_mixer`（`Mix_Music*`），因为 MIDI/MP3 等格式需要解码器
 - `PlayBeep()` 异步接口：内部生成正弦波 PCM，通过 `PlayPCM` 播放，返回通道 ID
 
 音效和音乐使用独立的 SDL audio device，互不干扰。
+
+当 `GAMELIB_SDL_USE_MIXER_CHANNELS` 启用时（条件：`GAMELIB_SDL_HAS_MIXER` 且定义了 `__EMSCRIPTEN__` 或 `GAMELIB_SDL_MIXER_CHANNEL`），音频路径切换为统一 mixer 模式：
+
+- **音效与背景音乐统一走 `SDL_mixer`**：音效使用 `Mix_Chunk` + `Mix_PlayChannel`，背景音乐使用 `Mix_Music*` + `Mix_PlayMusic`
+- 只打开一个 audio device（`Mix_OpenAudio`），不存在双设备共存
+- 原因：WASM/Emscripten 只允许同时打开一个 audio device，自写混音器的 `SDL_OpenAudioDevice` 与 `Mix_OpenAudio` 无法共存
+- 桌面平台上双设备共存仍为默认行为，除非用户显式定义 `GAMELIB_SDL_MIXER_CHANNEL`
 
 不向用户暴露：
 
@@ -808,7 +816,7 @@ SDL 版音频分为两条独立路径：
 - 解码线程
 - 设备枚举
 
-### 10.2 音效 API（自写软件混音器）
+### 10.2 音效 API
 
 与 Win32 主线对齐的多通道音效 API：
 
@@ -820,7 +828,7 @@ SDL 版音频分为两条独立路径：
 - `SetMasterVolume(volume)` → 设置主音量（0~1000），返回实际值
 - `GetMasterVolume()` → 返回当前主音量（0~1000）
 
-实现架构：
+实现架构（默认模式，自写软件混音器）：
 
 - 使用 `SDL_OpenAudioDevice` 打开独立的音频输出设备，回调模式
 - 自写 WAV 解析、重采样（线性插值，与 GameLib.h 一致）、单声道→立体声转换
@@ -829,6 +837,16 @@ SDL 版音频分为两条独立路径：
 - 通道 ID 用自增 `int64_t` 分配，最大 32 个并发通道
 - 音频设备惰性初始化：首次 `PlayWAV` 时才创建
 - 公开 API 通过 `SDL_LockAudioDevice`/`SDL_UnlockAudioDevice` 保护通道状态
+
+实现架构（`GAMELIB_SDL_USE_MIXER_CHANNELS` 启用时，Mixer 通道模式）：
+
+- 通过 `_EnsureMixerReady()` 初始化 mixer（`Mix_OpenAudio`），不再使用 `SDL_OpenAudioDevice`
+- `PlayWAV` 使用 `Mix_LoadWAV` 加载并缓存 `Mix_Chunk`，通过 `Mix_PlayChannel(-1, chunk, loops)` 播放
+- `PlayPCM` / `PlayBeep` 将 PCM 数据构造为临时 `Mix_Chunk`，通过 `Mix_PlayChannel` 播放；播放完成时通过 `Mix_ChannelFinished` 回调自动释放临时 chunk
+- 返回值为 Mix 通道号（0~31），-1 表示失败
+- 音量映射：公开 API 的 0~1000 线性映射到 `Mix_Chunk.volume` 的 0~128
+- `Mix_AllocateChannels(32)` 保证最大 32 个并发通道
+- WAV chunk 按文件路径缓存（`_chunk_cache`），同一文件多次播放不重复加载
 
 ### 10.3 PlayMusic / StopMusic / IsMusicPlaying
 
@@ -847,7 +865,8 @@ SDL 版音频分为两条独立路径：
 - `PlayMusic()` 在加载前根据文件扩展名和 `_mixerInitFlags` 判断对应解码器是否可用：标志位为 0 时直接拒绝并返回 `false`
 - WAV 始终由 SDL_mixer 内置支持，不需要解码器标志
 - MIDI 支持取决于平台：Linux 需要 timidity 或 native MIDI 服务，Windows 可用 native MIDI
-- 音效混音器和 SDL_mixer 使用独立的 audio device，两者可同时播放
+- 音效混音器和 SDL_mixer 使用独立的 audio device，两者可同时播放（默认模式）
+- `GAMELIB_SDL_USE_MIXER_CHANNELS` 启用时，音效也走 SDL_mixer 的 `Mix_Chunk` 路径，与背景音乐共用同一个 `Mix_OpenAudio` 设备
 
 ### 10.4 PlayBeep
 
@@ -859,9 +878,18 @@ SDL 版音频分为两条独立路径：
 
 ### 10.5 音频设备共存与释放
 
+默认模式：
+
 - 音效设备（`SDL_AudioDeviceID _audioDevice`）和音乐设备（`Mix_OpenAudio`）独立共存
 - 析构顺序：先 `StopMusic`，再 `_ShutdownAudioBackend` 关闭音效设备，然后清理通道和 WAV 缓存，最后关闭 SDL_mixer 和 SDL audio subsystem
 - WAV 缓存按文件路径管理，`_WavData` 使用引用计数，同一文件多次播放不重复读取；`temporary=true` 的临时数据（PlayPCM 创建）播放结束自动释放
+
+`GAMELIB_SDL_USE_MIXER_CHANNELS` 启用时：
+
+- 只有一个 audio device（`Mix_OpenAudio`），不存在双设备共存
+- `_ShutdownAudioBackend` 不再关闭 `SDL_AudioDeviceID`（因为从未打开）
+- 音效 WAV 缓存由 `_chunk_cache`（`Mix_Chunk*`）管理，析构时通过 `Mix_FreeChunk` 释放
+- PlayPCM/PlayBeep 的临时 chunk 由 `_temp_chunks` 管理，播放完成后通过 `Mix_ChannelFinished` 回调自动释放，或在 `StopAll()` / `StopWAV()` 时手动释放
 
 ---
 
@@ -993,6 +1021,10 @@ int32_t _mix_buffer[_AUDIO_BUFFER_TOTAL];
 Mix_Music *_currentMusic;
 bool _musicPlaying;
 int _mixerInitFlags;
+
+// Mixer 通道模式（仅 GAMELIB_SDL_USE_MIXER_CHANNELS 启用时使用）
+std::unordered_map<std::string, Mix_Chunk*> _chunk_cache;
+std::unordered_map<int, Mix_Chunk*> _temp_chunks;
 
 // 场景状态
 int _scene;
@@ -1154,7 +1186,7 @@ static bool _srandDone;
 
 1. **产品线分离**：保留现有 `GameLib.h`，新建独立 `GameLib.SDL.h`。
 2. **公开类名不变**：SDL 版仍使用 `GameLib` 类名，不与 Win32 版混合包含。
-3. **音效走自写软件混音器**：SDL 版音效不再依赖 `SDL_mixer`，而是自写 WAV 解析、重采样、多通道混音 + `SDL_OpenAudioDevice` 回调；`SDL_mixer` 仅用于背景音乐。
+3. **音效走自写软件混音器，WASM 环境自动切换为 Mixer 通道模式**：桌面端音效使用自写 WAV 解析、重采样、多通道混音 + `SDL_OpenAudioDevice` 回调，`SDL_mixer` 仅用于背景音乐；WASM 环境下因只允许一个 audio device，`GAMELIB_SDL_USE_MIXER_CHANNELS` 自动启用，所有音效改走 `Mix_Chunk` + `Mix_PlayChannel`。
 4. **字体参数优先按路径解释**：家族名解析仅 best effort。
 5. **继续坚持软件帧缓冲**：不把用户绘图直接切到 SDL renderer API。
 6. **窗口默认不可缩放**：先做与现有 `GameLib.h` 接近的行为。
@@ -1168,8 +1200,9 @@ static bool _srandDone;
 - 选择独立 `GameLib.SDL.h`，是为了避免把现有 `GameLib.h` 变成一个充满平台分支和依赖分支的巨型头文件。
 - 选择继续保留软件帧缓冲，是为了最大化复用现有图元、精灵、Tilemap、像素混合逻辑，也让 SDL 版与 Win32 版更容易保持语义一致。
 - 无 Alpha 且无 ColorKey 的 sprite/tilemap 快路径继续保持“直接覆盖目标像素”的规则，只有显式传入 `SPRITE_ALPHA` / `SPRITE_COLORKEY` 时才启用透明语义；这样 SDL 版与 Win32 版的默认 sprite 行为一致。
-- 选择 `SDL_mixer` 用于背景音乐（`PlayMusic`/`StopMusic`），是因为 MIDI/MP3 等格式需要解码器支持；但音效（`PlayWAV` 等）改用自写软件混音器 + `SDL_OpenAudioDevice` 回调，与 Win32 主线 waveOut 混音器架构平行，避免 SDL_mixer 单通道音效的局限。
+- 选择 `SDL_mixer` 用于背景音乐（`PlayMusic`/`StopMusic`），是因为 MIDI/MP3 等格式需要解码器支持；但音效（`PlayWAV` 等）在桌面端改用自写软件混音器 + `SDL_OpenAudioDevice` 回调，与 Win32 主线 waveOut 混音器架构平行，避免 SDL_mixer 单通道音效的局限。
 - 音效混音器和 SDL_mixer 使用独立的 audio device，两者可同时播放，互不干扰；这是 SDL 2 支持多 audio device 并存的特性。
+- WASM 环境下只有一个 audio device，自写混音器的 `SDL_OpenAudioDevice` 与 `Mix_OpenAudio` 无法共存，因此引入 `GAMELIB_SDL_USE_MIXER_CHANNELS`：在 `__EMSCRIPTEN__` 或显式定义 `GAMELIB_SDL_MIXER_CHANNEL` 时，所有音效统一走 `Mix_Chunk` + `Mix_PlayChannel`。桌面端默认不受影响。
 - 音效设备惰性初始化（首次 `PlayWAV` 时才打开），不使用音频的程序不会创建 audio device。
 - WAV 数据统一转换为 44100Hz/stereo/16bit 后缓存复用，与 Win32 主线保持一致的重采样和格式转换逻辑。
 - `SDL_LockAudioDevice`/`SDL_UnlockAudioDevice` 替代 Win32 版的 `CRITICAL_SECTION`，在公开 API 中保护通道状态修改。

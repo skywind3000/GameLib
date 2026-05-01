@@ -137,6 +137,12 @@
 #define GAMELIB_SDL_HAS_MIXER 0
 #endif
 
+#if GAMELIB_SDL_HAS_MIXER && (defined(__EMSCRIPTEN__) || defined(GAMELIB_SDL_MIXER_CHANNEL))
+#define GAMELIB_SDL_USE_MIXER_CHANNELS 1
+#else
+#define GAMELIB_SDL_USE_MIXER_CHANNELS 0
+#endif
+
 // Forward declarations for extension types when their headers are not available.
 // These match the official SDL struct tag naming so they won't conflict if the
 // headers are later included from elsewhere.
@@ -605,9 +611,14 @@ private:
     int _AllocateChannel();
     void _ReleaseChannel(int channel_id);
 
-    Mix_Music *_currentMusic;
+Mix_Music *_currentMusic;
     bool _musicPlaying;
     int _mixerInitFlags;
+#if GAMELIB_SDL_USE_MIXER_CHANNELS
+    std::unordered_map<std::string, Mix_Chunk*> _chunk_cache;
+    std::unordered_map<int, Mix_Chunk*> _temp_chunks;
+    static void _MixerChannelFinishedCallback(int channel);
+#endif
 
     // scene state
     int _scene;
@@ -1037,6 +1048,19 @@ GameLib::~GameLib()
     }
     _wav_cache.clear();
 
+#if GAMELIB_SDL_USE_MIXER_CHANNELS
+    for (std::unordered_map<std::string, Mix_Chunk*>::iterator it = _chunk_cache.begin();
+         it != _chunk_cache.end(); ++it) {
+        Mix_FreeChunk(it->second);
+    }
+    _chunk_cache.clear();
+    for (std::unordered_map<int, Mix_Chunk*>::iterator it = _temp_chunks.begin();
+         it != _temp_chunks.end(); ++it) {
+        Mix_FreeChunk(it->second);
+    }
+    _temp_chunks.clear();
+#endif
+
     if (_sdlReady || SDL_WasInit(SDL_INIT_VIDEO)) {
         SDL_ShowCursor(SDL_ENABLE);
     }
@@ -1193,13 +1217,32 @@ bool GameLib::_EnsureMixerReady()
     flags |= MIX_INIT_OPUS;
     _mixerInitFlags = Mix_Init(flags);
     if (Mix_OpenAudio(44100, AUDIO_S16SYS, 2, 1024) != 0) return false;
+#if GAMELIB_SDL_USE_MIXER_CHANNELS
+    Mix_AllocateChannels(32);
+    Mix_ChannelFinished(_MixerChannelFinishedCallback);
+#else
     Mix_AllocateChannels(8);
+#endif
     _mixerReady = true;
     return true;
 #else
     return false;
 #endif
 }
+
+#if GAMELIB_SDL_USE_MIXER_CHANNELS
+static GameLib *_gamelib_sdl_instance;
+
+void GameLib::_MixerChannelFinishedCallback(int channel)
+{
+    if (!_gamelib_sdl_instance) return;
+    std::unordered_map<int, Mix_Chunk*>::iterator it = _gamelib_sdl_instance->_temp_chunks.find(channel);
+    if (it != _gamelib_sdl_instance->_temp_chunks.end()) {
+        Mix_FreeChunk(it->second);
+        _gamelib_sdl_instance->_temp_chunks.erase(it);
+    }
+}
+#endif
 
 #if GAMELIB_SDL_HAS_TTF
 
@@ -1566,6 +1609,9 @@ void GameLib::_SyncInputState()
 
 int GameLib::Open(int width, int height, const char *title, bool center, bool resizable)
 {
+#if GAMELIB_SDL_USE_MIXER_CHANNELS
+    _gamelib_sdl_instance = this;
+#endif
     if (width <= 0 || height <= 0 || width > 16384 || height > 16384) return -9;
 
     if (!_sdlReady) {
@@ -4409,6 +4455,9 @@ bool GameLib::_InitAudioBackend()
 
 void GameLib::_ShutdownAudioBackend()
 {
+#if GAMELIB_SDL_USE_MIXER_CHANNELS
+    _audio_initialized = false;
+#else
     if (_audioDevice != 0) {
         SDL_CloseAudioDevice(_audioDevice);
         _audioDevice = 0;
@@ -4418,6 +4467,7 @@ void GameLib::_ShutdownAudioBackend()
         // It will be quit in the destructor after SDL_mixer cleanup
     }
     _audio_initialized = false;
+#endif
 }
 
 void GameLib::_SDLAudioCallback(void *userdata, Uint8 *stream, int len)
@@ -4737,6 +4787,27 @@ void GameLib::_ReleaseChannel(int channel_id)
 int GameLib::PlayWAV(const char *filename, int repeat, int volume)
 {
     if (!filename) return -1;
+#if GAMELIB_SDL_USE_MIXER_CHANNELS
+    if (!_EnsureMixerReady()) return -2;
+
+    std::string key(filename);
+    std::unordered_map<std::string, Mix_Chunk*>::iterator it = _chunk_cache.find(key);
+    Mix_Chunk *chunk;
+    if (it != _chunk_cache.end()) {
+        chunk = it->second;
+    } else {
+        chunk = Mix_LoadWAV(filename);
+        if (!chunk) return -1;
+        _chunk_cache[key] = chunk;
+    }
+
+    int v = (volume < 0) ? 0 : (volume > 1000 ? 1000 : volume);
+    chunk->volume = (Uint8)(v * 128 / 1000);
+
+    int loops = (repeat <= 0) ? -1 : (repeat - 1);
+    int ch = Mix_PlayChannel(-1, chunk, loops);
+    return ch;
+#else
     if (!_audio_initialized) {
         _audio_initialized = _InitAudioBackend();
         if (!_audio_initialized) return -2;
@@ -4763,11 +4834,48 @@ int GameLib::PlayWAV(const char *filename, int repeat, int volume)
     SDL_UnlockAudioDevice(_audioDevice);
 
     return ch_id;
+#endif
 }
 
 int GameLib::PlayPCM(const int16_t *pcm, int nchannels, int nsamples, int sample_rate, int repeat, int volume)
 {
     if (!pcm || nchannels < 1 || nchannels > 2 || nsamples <= 0 || sample_rate <= 0) return -1;
+#if GAMELIB_SDL_USE_MIXER_CHANNELS
+    if (!_EnsureMixerReady()) return -2;
+
+    _WavData src;
+    src.sample_rate = (uint32_t)sample_rate;
+    src.channels = (uint16_t)nchannels;
+    src.bits_per_sample = 16;
+    src.size = (uint32_t)(nsamples * sizeof(int16_t));
+    src.buffer = (uint8_t*)pcm;
+
+    _WavData *wav = _ConvertToTargetFormat(&src);
+    src.buffer = NULL;
+
+    if (!wav) return -1;
+
+    Mix_Chunk *chunk = new Mix_Chunk();
+    chunk->allocated = 1;
+    chunk->abuf = wav->buffer;
+    chunk->alen = wav->size;
+    int v = (volume < 0) ? 0 : (volume > 1000 ? 1000 : volume);
+    chunk->volume = (Uint8)(v * 128 / 1000);
+
+    wav->buffer = NULL;
+    delete wav;
+
+    int loops = (repeat <= 0) ? -1 : (repeat - 1);
+    int ch = Mix_PlayChannel(-1, chunk, loops);
+    if (ch < 0) {
+        if (chunk->abuf) free(chunk->abuf);
+        delete chunk;
+        return -1;
+    }
+
+    _temp_chunks[ch] = chunk;
+    return ch;
+#else
     if (!_audio_initialized) {
         _audio_initialized = _InitAudioBackend();
         if (!_audio_initialized) return -2;
@@ -4805,10 +4913,21 @@ int GameLib::PlayPCM(const int16_t *pcm, int nchannels, int nsamples, int sample
     SDL_UnlockAudioDevice(_audioDevice);
 
     return ch_id;
+#endif
 }
 
 int GameLib::StopWAV(int channel)
 {
+#if GAMELIB_SDL_USE_MIXER_CHANNELS
+    if (channel < 0) return 0;
+    std::unordered_map<int, Mix_Chunk*>::iterator it = _temp_chunks.find(channel);
+    if (it != _temp_chunks.end()) {
+        Mix_FreeChunk(it->second);
+        _temp_chunks.erase(it);
+    }
+    Mix_HaltChannel(channel);
+    return 1;
+#else
     if (_audioDevice == 0) return 0;
     SDL_LockAudioDevice(_audioDevice);
     std::unordered_map<int, _Channel*>::iterator it = _audio_channels.find(channel);
@@ -4819,10 +4938,15 @@ int GameLib::StopWAV(int channel)
     _ReleaseChannel(channel);
     SDL_UnlockAudioDevice(_audioDevice);
     return 1;
+#endif
 }
 
 int GameLib::IsPlaying(int channel)
 {
+#if GAMELIB_SDL_USE_MIXER_CHANNELS
+    if (channel < 0) return 0;
+    return Mix_Playing(channel) ? 1 : 0;
+#else
     if (_audioDevice == 0) return 0;
     SDL_LockAudioDevice(_audioDevice);
     std::unordered_map<int, _Channel*>::iterator it = _audio_channels.find(channel);
@@ -4832,10 +4956,17 @@ int GameLib::IsPlaying(int channel)
     }
     SDL_UnlockAudioDevice(_audioDevice);
     return result;
+#endif
 }
 
 int GameLib::SetVolume(int channel, int volume)
 {
+#if GAMELIB_SDL_USE_MIXER_CHANNELS
+    if (channel < 0) return -1;
+    int v = (volume < 0) ? 0 : (volume > 1000 ? 1000 : volume);
+    Mix_Volume(channel, v * 128 / 1000);
+    return v;
+#else
     if (_audioDevice == 0) return -1;
     SDL_LockAudioDevice(_audioDevice);
     std::unordered_map<int, _Channel*>::iterator it = _audio_channels.find(channel);
@@ -4846,10 +4977,19 @@ int GameLib::SetVolume(int channel, int volume)
     }
     SDL_UnlockAudioDevice(_audioDevice);
     return result;
+#endif
 }
 
 void GameLib::StopAll()
 {
+#if GAMELIB_SDL_USE_MIXER_CHANNELS
+    Mix_HaltChannel(-1);
+    for (std::unordered_map<int, Mix_Chunk*>::iterator it = _temp_chunks.begin();
+         it != _temp_chunks.end(); ++it) {
+        Mix_FreeChunk(it->second);
+    }
+    _temp_chunks.clear();
+#else
     if (_audioDevice == 0) return;
     SDL_LockAudioDevice(_audioDevice);
     std::vector<int> channel_ids;
@@ -4862,6 +5002,7 @@ void GameLib::StopAll()
     }
     _audio_channels.clear();
     SDL_UnlockAudioDevice(_audioDevice);
+#endif
 }
 
 int GameLib::SetMasterVolume(int volume)
@@ -4879,10 +5020,14 @@ int GameLib::GetMasterVolume() const
 int GameLib::PlayBeep(int frequency, int duration, int repeat, int volume)
 {
     if (frequency <= 0 || duration <= 0) return -1;
+#if GAMELIB_SDL_USE_MIXER_CHANNELS
+    if (!_EnsureMixerReady()) return -2;
+#else
     if (!_audio_initialized) {
         _audio_initialized = _InitAudioBackend();
         if (!_audio_initialized) return -2;
     }
+#endif
 
     const int sample_rate = 44100;
     const int nchannels = 1;
