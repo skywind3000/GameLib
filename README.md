@@ -93,6 +93,11 @@ Dev C++ 用户：新建项目 > 添加 `main.cpp` > 编译运行，完事。
 - 课程作业演示（零配置交付）
 - 任何你想得到的 2D 游戏或互动程序
 
+## 真实案例
+
+![](https://skywind3000.github.io/games/pics/geometry.gif)
+
+使用 GameLib 制作的《Geometry Wars》游戏，[点击试玩网页版](https://skywind3000.github.io/games/geometry/)，或者 [访问源码](https://github.com/skywind3000/GameSamples)。
 
 ## 示例程序
 
