@@ -82,7 +82,7 @@ Dev C++ 用户：新建项目 > 添加 `main.cpp` > 编译运行，完事。
 - **场景管理** — 整数标识场景，`switch` 即可实现菜单→游戏→结算切换
 - **存档读写** — `SaveInt/LoadInt` 等一行代码存取，纯文本 `key=value` 格式
 - **UI 控件** — Button、Checkbox、RadioBox、ToggleButton，即时模式零依赖
-- **跨平台** — SDL2 版 `GameLib.SDL.h` 支持 Linux/macOS（详见 [SDL2PORT.md](SDL2PORT.md))
+- **跨平台** — SDL2 版 `GameLib.SDL.h` 支持 Linux/macOS/Web（详见 [SDL2PORT.md](SDL2PORT.md))
 
 
 ## 适合做什么？
