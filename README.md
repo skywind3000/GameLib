@@ -181,10 +181,10 @@ g++ -o 03_shapes.exe examples/03_shapes.cpp -mwindows
 - 免费图片/音频/字体：https://craftpix.net/tags/pixel-art-game-assets-download
 - PyGame 资源页：https://www.pygame.org/wiki/resources
 
-## Stars
-
-![Star History Chart](https://api.star-history.com/svg?repos=skywind3000/GameLib&type=Date)
-
 ## 协议
 
 MIT License. 随便用。
+
+## Star History
+
+![Star History Chart](https://api.star-history.com/svg?repos=skywind3000/GameLib&type=Date)
