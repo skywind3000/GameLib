@@ -23,7 +23,7 @@ int main()
                 highscore = GameLib::LoadInt("save.dat", "highscore", 0);
             }
             game.Clear(COLOR_DARK_BLUE);
-            game.DrawTextScale(180, 120, "Scene & Save Demo", COLOR_GOLD, 2);
+            game.DrawTextScale(180, 120, "Scene & Save Demo", COLOR_GOLD, 2,2);
             game.DrawText(220, 200, "Press ENTER to play", COLOR_WHITE);
             game.DrawPrintf(220, 240, COLOR_CYAN, "High Score: %d", highscore);
             game.DrawText(180, 300, "Press D to delete save file", COLOR_GRAY);
@@ -86,7 +86,7 @@ int main()
             }
 
             game.Clear(COLOR_DARK_RED);
-            game.DrawTextScale(220, 120, "GAME OVER", COLOR_WHITE, 2);
+            game.DrawTextScale(220, 120, "GAME OVER", COLOR_WHITE, 2,2);
             game.DrawPrintf(230, 200, COLOR_WHITE, "Score: %d", score);
             game.DrawPrintf(230, 230, COLOR_CYAN, "High Score: %d", highscore);
             if (newRecord)
