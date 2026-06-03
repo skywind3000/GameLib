@@ -186,5 +186,5 @@ Windows 下如果使用动态库版本，需要让运行时能找到这些 DLL�
 
 ### 5.6 迁移现状
 
-- 当前 SDL 回归入口是 `examples/01_hello.cpp` ~ `examples/15_ui_controls.cpp`，这 15 个统一示例通过预处理器自动选择 Win32 或 SDL 后端，同时作为两条产品线的回归验证。
-- 覆盖路径包括：基础窗口、图元、精灵、动画、字体、音频、Tilemap、裁剪矩形、缩放、旋转与 UI 控件。
+- 当前 SDL 回归入口是 `examples/01_hello.cpp` ~ `examples/16_coreball.cpp`，这 16 个统一示例通过预处理器自动选择 Win32 或 SDL 后端，同时作为两条产品线的回归验证。
+- 覆盖路径包括：基础窗口、图元、精灵、动画、字体、音频、Tilemap、裁剪矩形、缩放、旋转、UI 控件与角度碰撞小游戏。
