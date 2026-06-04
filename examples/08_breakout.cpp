@@ -23,6 +23,19 @@
 #define BRICK_OFFSET_X 12
 #define BRICK_OFFSET_Y 50
 
+static const int PADDLE_W = 80;
+static const int PADDLE_H = 12;
+static const int PADDLE_START_X = 280;
+static const int PADDLE_Y = 450;
+static const int PADDLE_SPEED = 6;
+
+static const float BALL_START_VY = -4.0f;
+static const float BALL_START_MIN_ABS_VX = 1.5f;
+static const float BALL_START_MAX_ABS_VX = 4.0f;
+static const int BALL_R = 5;
+static const float BALL_PADDLE_MAX_VX = 8.0f;
+static const int LIVES_START = 1;
+
 static const char *ChooseExistingPath(const char *pathA, const char *pathB)
 {
     FILE *file = fopen(pathA, "rb");
@@ -32,6 +45,15 @@ static const char *ChooseExistingPath(const char *pathA, const char *pathB)
     return pathA;
 }
 
+static void ResetBallVelocity(float *vx, float *vy)
+{
+    int minSpeedX10 = (int)(BALL_START_MIN_ABS_VX * 10.0f);
+    int maxSpeedX10 = (int)(BALL_START_MAX_ABS_VX * 10.0f);
+    float speed = (float)GameLib::Random(minSpeedX10, maxSpeedX10) / 10.0f;
+    if (GameLib::Random(0, 1) == 0) speed = -speed;
+    *vx = speed;
+    *vy = BALL_START_VY;
+}
 int main()
 {
     GameLib game;
@@ -55,14 +77,14 @@ int main()
     bool bricks[BRICK_ROWS][BRICK_COLS];
     uint32_t brickColors[] = {COLOR_RED, COLOR_ORANGE, COLOR_YELLOW, COLOR_GREEN, COLOR_CYAN, COLOR_PURPLE};
 
-    int padW = 80, padH = 12;
-    int padX = 280, padY = 450;
+    int padW = PADDLE_W, padH = PADDLE_H;
+    int padX = PADDLE_START_X, padY = PADDLE_Y;
 
     float ballX = 320, ballY = 430;
-    float ballVX = 3.0f, ballVY = -4.0f;
-    int ballR = 5;
+    float ballVX = 0.0f, ballVY = BALL_START_VY;
+    int ballR = BALL_R;
 
-    int score = 0, lives = 3, totalBricks = 0;
+    int score = 0, lives = LIVES_START, totalBricks = 0;
     bool started = false, gameOver = false, gameWin = false;
 
     for (int r = 0; r < BRICK_ROWS; r++)
@@ -75,8 +97,8 @@ int main()
         if (game.IsKeyPressed(KEY_ESCAPE)) break;
 
         if (!gameOver && !gameWin) {
-            if (game.IsKeyDown(KEY_LEFT))  padX -= 6;
-            if (game.IsKeyDown(KEY_RIGHT)) padX += 6;
+            if (game.IsKeyDown(KEY_LEFT))  padX -= PADDLE_SPEED;
+            if (game.IsKeyDown(KEY_RIGHT)) padX += PADDLE_SPEED;
             if (padX < 0) padX = 0;
             if (padX + padW > game.GetWidth()) padX = game.GetWidth() - padW;
 
@@ -85,7 +107,7 @@ int main()
                 ballY = (float)(padY - ballR - 1);
                 if (game.IsKeyPressed(KEY_SPACE)) {
                     started = true;
-                    ballVX = 3.0f; ballVY = -4.0f;
+                    ResetBallVelocity(&ballVX, &ballVY);
                     sfxToPlay = launchSfx;
                 }
             } else {
@@ -107,7 +129,7 @@ int main()
                 if (ballY + ballR > game.GetHeight()) {
                     lives--;
                     if (lives <= 0) { gameOver = true; sfxToPlay = gameOverSfx; }
-                    else { started = false; ballVX = 3.0f; ballVY = -4.0f; sfxToPlay = loseLifeSfx; }
+                    else { started = false; ballVX = 0.0f; ballVY = BALL_START_VY; sfxToPlay = loseLifeSfx; }
                 }
 
                 if (ballVY > 0 &&
@@ -116,7 +138,7 @@ int main()
                     ballVY = -ballVY;
                     ballY = (float)(padY - ballR);
                     float hitPos = (ballX - padX) / padW;
-                    ballVX = (hitPos - 0.5f) * 8.0f;
+                    ballVX = (hitPos - 0.5f) * BALL_PADDLE_MAX_VX;
                     if (!sfxToPlay) sfxToPlay = bounceSfx;
                 }
 
@@ -156,7 +178,7 @@ int main()
                     for (int c = 0; c < BRICK_COLS; c++)
                         bricks[r][c] = true;
                 totalBricks = BRICK_ROWS * BRICK_COLS;
-                score = 0; lives = 3; padX = 280;
+                score = 0; lives = LIVES_START; padX = PADDLE_START_X;
                 started = false; gameOver = false; gameWin = false;
                 sfxToPlay = restartSfx;
             }

@@ -1156,7 +1156,7 @@ static bool _srandDone;
 - `docs/GameLib.SDL.md` 已同步到当前实现状态，仓库根目录也已新增 `SDL2PORT.md` 作为简版移植说明。
 - `AGENTS.md` 已补充 `GameLib.SDL.h` / `docs/GameLib.SDL.md` 的索引与用途。
 - README 仍只保留一句 SDL 产品线提示，主叙事继续突出 Win32 零依赖主线；具体 SDL 编译命令与限制统一放到 `SDL2PORT.md`。
-- `examples/01_hello.cpp` ~ `examples/15_ui_controls.cpp` 已统一为 Win32 / SDL 双后端示例，通过预处理器自动选择后端，覆盖基础窗口、图元、精灵、动画、字体、音频、Tilemap、裁剪矩形、缩放、旋转与 UI 控件等路径，同时作为 SDL 版的回归入口。
+- `examples/01_hello.cpp` ~ `examples/16_coreball.cpp` 已统一为 Win32 / SDL 双后端示例，通过预处理器自动选择后端，覆盖基础窗口、图元、精灵、动画、字体、音频、Tilemap、裁剪矩形、缩放、旋转、UI 控件与角度碰撞小游戏等路径，同时作为 SDL 版的回归入口。
 - 本阶段收口结论：`GameLib.SDL.h` 已具备独立产品线的最小可维护状态，后续工作可以从“补齐代表性回归入口”切换到“按具体差异或新需求增量演进”。
 
 ### 14.5 当前已知差异与可继续完善项

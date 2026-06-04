@@ -101,7 +101,7 @@ Dev C++ 用户：新建项目 > 添加 `main.cpp` > 编译运行，完事。
 
 ## 示例程序
 
-`examples/` 目录包含 15 个由浅入深的示例，每个兼容 Win32 和 SDL 两条产品线：
+`examples/` 目录包含 16 个由浅入深的示例，每个兼容 Win32 和 SDL 两条产品线：
 
 ### 入门基础
 
@@ -142,6 +142,7 @@ Dev C++ 用户：新建项目 > 添加 `main.cpp` > 编译运行，完事。
 | `13_clip_rect.cpp` | 裁剪矩形 | SetClip/ClearClip |
 | `14_space_shooter.cpp` | 太空射击 | 综合实战 |
 | `15_ui_controls.cpp` | UI 控件演示 | Button、Checkbox、RadioBox |
+| `16_coreball.cpp` | 见缝插针 | 圆周运动、角度碰撞、状态机 |
 
 编译任意示例：
 
