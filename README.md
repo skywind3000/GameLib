@@ -187,4 +187,4 @@ MIT License. 随便用。
 
 ## Star History
 
-![Star History Chart](https://api.star-history.com/svg?repos=skywind3000/GameLib&type=Date)
+![Star History Chart](https://star-history.dera.page/svg?repos=skywind3000/GameLib&type=Date)
